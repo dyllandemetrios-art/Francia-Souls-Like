@@ -609,9 +609,9 @@ le projectile rate.
 
 ### Étape 9 — Rage → Phase 3
 Seuil 50 % via `OnHealthChanged` (avec garde), `Rage_Transition`, `Phase3_Rage` : reprise des
-armes + **cadence ×1.5** (`InPlayRate` 1.5, `MaxWalkSpeed` 630 à confirmer).
-**Test :** la rage se déclenche **une seule fois**, exactement à 50 % ; le boss est visiblement
-plus rapide ensuite.
+armes + **cadence d'attaque ×1.5** (`InPlayRate` 1.5, `MaxWalkSpeed` inchangé à 420).
+**Test :** la rage se déclenche **une seule fois**, exactement à 50 % ; le boss attaque
+visiblement plus vite ensuite, sans changement de vitesse de déplacement.
 
 ### Étape 10 — Mort du boss + fin
 `BossDeath` (IA off, attaques off, montage), `OnBossDefeated` → `Ending_Cinematic` → `Finished`.
@@ -666,6 +666,9 @@ observer les transitions, captures d'écran.
 | — | Phase 3 | Reprise des armes **+ 1.5× plus rapide** |
 | — | Mort d'une Morigesh | **Animation de base conservée** (`AM_Morigesh_Death`), pose maintenue |
 | — | Après les 3 morts | **Attente 5 s**, puis `AS_LevitatingUnconscious` sur les 3 en simultané |
+| — | Transition mort → lévitation | Enchaînement direct accepté ; si le raccord est laid, l'utilisateur ajoutera un artifice (écran noir, etc.) |
+| — | Fin de la lévitation | **Les corps disparaissent** |
+| — | « 1.5× plus rapide » Phase 3 | **Cadence d'attaque uniquement** (`InPlayRate` 1.5) — la vitesse de déplacement reste à 420 |
 | 7 | Déclenchement de l'intro | **Franchissement d'un point sur la carte** (couloir → grande salle, niveau à construire) |
 | — | Cinématiques / narration | **Reportées** — on les branche une fois le combat fonctionnel |
 | — | Principe de déclenchement | Tout est piloté par **position du joueur + état des ennemis** |
@@ -682,9 +685,8 @@ observer les transitions, captures d'écran.
 | 9 | **Boss caché ou spawné** | Recommandé : présent mais désactivé |
 | 10 | **BT partagé ou `BT_Boss` dédié** | Recommandé : rester partagé |
 | 11 | **Manny résiduel** (`BP_ThirdPersonCharacter` à 360,−1080) | Le supprimer du niveau ? |
-| 12 | **Lévitation : montée physique ?** | cf. §17.3 — l'anim ne soulève pas le personnage (pelvis constant à 89) |
-| 13 | **Retargeting : compatible skeleton ou IK Retargeter ?** | cf. §17.1 — je peux faire le premier par script, pas le second |
-| 14 | **Les corps restent-ils en lévitation ?** | Si oui, `bEnableAutoBlendOut = false` aussi sur ce montage (§17.3) |
+| 13 | **Retargeting : compatible skeleton ou IK Retargeter ?** | cf. §17.1 — je peux faire le premier par script, pas le second ; à valider à l'œil en Étape 0 |
+| 15 | **Environnement — réutiliser une map de démo telle quelle ?** | cf. §17.7 — réponse : oui, possible et recommandé pour prototyper vite |
 
 ---
 
@@ -793,21 +795,29 @@ Propriétés relevées de `AS_LevitatingUnconscious` :
 | Hauteur du pelvis | **89 → 89.2 → 89** (constante) |
 
 > ⚠️ **L'animation ne fait pas léviter le personnage.** Le pelvis reste à hauteur debout standard
-> sur toute la durée : c'est une **posture** de corps inconscient, pas une élévation. Si tu veux
-> qu'elles décollent réellement du sol, la montée doit être pilotée par le gameplay.
+> sur toute la durée : c'est une **posture** de corps inconscient, pas une élévation.
 
-| Option | Description |
-|---|---|
-| **A — Posture seule** | Les 3 jouent l'anim au sol. Le plus simple. |
-| **B — Montée par Timeline** *(recommandé si tu veux la lévitation)* | Le director interpole leur `ActorLocation` vers le haut pendant les 6.2 s. Contrôle total, aucun asset requis. |
-| **C — Level Sequence** | Mouvement animé dans le Sequencer. Plus expressif, dépend d'un asset à créer. |
+**Décision : montée physique pilotée par le gameplay** (l'utilisateur veut passer d'« allongé mort
+au sol » à « en lévitation » — la posture seule ne suffit pas).
+
+```
+mort de la 3e Morigesh
+   -> attendre 5 s
+   -> jouer AS_LevitatingUnconscious sur les 3 (posture de la pose)
+      + Timeline : ActorLocation.Z monte pendant les 6.2 s (durée du montage)
+   -> à la fin : les 3 corps disparaissent (DestroyActor ou fade + Destroy)
+   -> enchaîner sur BossSummon_Cinematic
+```
+
+**Raccord mort → lévitation** : accepté tel quel, direct, sans transition dédiée. Si le résultat
+visuel est disgracieux une fois vu en jeu, l'utilisateur ajoutera lui-même un artifice de mise en
+scène (écran noir, fondu…) — **pas un point bloquant pour l'implémentation**.
+
+**Corps après la lévitation** : ils **disparaissent** — pas de verrou de pose à ajouter sur ce
+montage, contrairement à `AM_Morigesh_Death` (§17.2) qui doit rester visible, elle.
 
 **« Animation collective » = simple synchronisation.** Le director lance `AS_LevitatingUnconscious`
-sur les 3 Morigesh dans la même frame ; aucun système spécial n'est nécessaire.
-
-**Note d'enchaînement :** l'anim de lévitation devra elle aussi tenir sa pose finale
-(`bEnableAutoBlendOut = false`) si les corps doivent rester ainsi pendant le combat de boss.
-Sinon elles retomberaient en Idle debout au bout de 6.2 s.
++ la Timeline sur les 3 Morigesh dans la même frame.
 
 ### 17.4 🔴 Phase 2 du boss — le fireball est un système à créer
 
@@ -842,16 +852,16 @@ HP et dégâts identiques sur les trois phases ⇒ la config par phase se rédui
 |---|---|---|---|
 | `MaxHealth` | 600 | 600 | 600 |
 | `AttackDamage` | 40 | 40 (fireball) | 40 |
-| `AttackRate` | 1.0 | 1.0 | **1.5** |
-| `MaxWalkSpeed` | 420 | 420 | **630** *(420 × 1.5 — à confirmer)* |
+| `AttackRate` (`InPlayRate`) | 1.0 | 1.0 | **1.5** |
+| `MaxWalkSpeed` | 420 | 420 | **420** *(inchangé — décision confirmée)* |
 | Montages | `AM_Khaimera_Attack_01/02/03` | montages fireball | `AM_Khaimera_Attack_01/02/03` |
 | Mode d'attaque | mêlée (trace) | **projectile** | mêlée (trace) |
 
 > Les variables par phase restent en place malgré des valeurs identiques : elles rendent
 > l'équilibrage possible sans retoucher le graphe (Étape 12).
 >
-> **Question ouverte :** « 1.5× plus rapide » = cadence d'animation seule, ou aussi vitesse de
-> déplacement ? J'ai proposé les deux ci-dessus, à confirmer.
+> **« 1.5× plus rapide » = cadence d'attaque uniquement.** La vitesse de déplacement (420) reste
+> identique sur les trois phases — jugée trop élevée si augmentée, décision de l'utilisateur.
 
 ### 17.6 Déclenchement par position — architecture
 
@@ -868,3 +878,49 @@ ces deux signaux et décide. Concrètement :
 Le niveau (couloir → salle) n'existant pas encore, l'Étape 2 place un volume **provisoire** dans
 `Lvl_ThirdPerson` pour rendre le flow testable immédiatement ; il sera repositionné une fois
 l'arène construite avec `MedCastle` / `RuinedCrypt` / `Gothic_Environment`.
+
+### 17.7 Réutiliser une map de démo telle quelle — oui, c'est possible
+
+Les trois packs d'environnement contiennent chacun une **map de démo jouable**, pas seulement des
+assets bruts à assembler :
+
+| Map | Pack | Taille | Nature |
+|---|---|---|---|
+| `RuinedCrypt_01_P` | RuinedCrypt | 2.4 Mo | Niveau de démo principal (crypte en ruine) |
+| `RuinedCrypt_02_Overview_P` | RuinedCrypt | 424 Ko | Vue d'ensemble |
+| `MedievalCastle` | MedCastle | **59 Mo** | Niveau de démo principal (château médiéval) |
+| `Overview1` | MedCastle | 608 Ko | Vue d'ensemble |
+| `Review` | Gothic_Environment | 36 Ko | Salle de présentation des assets |
+
+`RuinedCrypt` a même deux sous-niveaux d'éclairage (`L_RuinedCrypt_Lighting_01_01_Day/Night`) —
+signe d'un niveau construit avec un vrai souci de mise en scène, pas un simple showroom.
+
+**Ce que « réutiliser telle quelle » veut dire concrètement :**
+
+1. Ouvrir la map de démo (ex. `RuinedCrypt_01_P`) directement dans l'éditeur.
+2. Placer dedans : `PlayerStart`, les 3 `BP_Enemy`, `BP_Boss` (cachés/désactivés), le
+   `BP_CombatDirector`, le volume de trigger d'intro.
+3. Changer la `DefaultPawnClass` de la map (ou pointer son GameMode vers
+   `BP_ThirdPersonGameMode`) pour que ton perso y spawne.
+4. C'est jouable immédiatement — aucune construction de niveau nécessaire.
+
+**Comparatif rapide :**
+
+| Approche | Effort | Résultat |
+|---|---|---|
+| **Réutiliser une map de démo** *(recommandé pour ce prototype)* | Faible — placement d'acteurs seulement | Décor déjà éclairé et composé par les auteurs du pack |
+| Construire depuis les assets bruts (couloir → salle décrit précédemment) | Élevé — kit-bashing manuel | Sur mesure, mais long |
+
+**Réserve à vérifier avant de choisir :** `MedievalCastle` (59 Mo) est probablement un niveau
+extérieur/large plutôt qu'une arène resserrée — à ouvrir visuellement pour juger si son échelle
+convient à un combat de boss rapproché. `RuinedCrypt` (crypte, espaces clos) colle mieux a priori
+à l'ambiance « couloir → salle de rencontre » déjà évoquée pour l'intro.
+
+**Ce que ça change dans le plan (§13) :** si une map de démo est retenue, l'**Étape 2** consiste à
+peupler *cette* map plutôt qu'à construire un niveau dédié — le volume de trigger provisoire
+devient directement le volume final, sans repositionnement ultérieur. Aucune autre étape n'est
+affectée : le Combat Flow ne connaît pas le niveau dans lequel il tourne.
+
+> **Décision à prendre :** quelle map (ou quel pack) sert de base ? Une visite rapide en jeu des
+> deux candidats principales (`RuinedCrypt_01_P`, `MedievalCastle`) permettrait de trancher avant
+> l'Étape 2.
