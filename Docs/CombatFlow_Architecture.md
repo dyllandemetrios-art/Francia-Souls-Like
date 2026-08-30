@@ -954,3 +954,27 @@ scène est un choix de mise en scène, pas une donnée technique.
 PlayerStart + 3 Morigesh + boss + trigger dans `RuinedCrypt_01_P`*, puis je pose le
 `NavMeshBoundsVolume` si nécessaire et j'applique le correctif `AM_Morigesh_Death` (§17.2). Aucune
 autre étape n'est affectée — le Combat Flow ne connaît pas le niveau dans lequel il tourne.
+
+### 17.9 🔴 Correctif appliqué — GameMode de `RuinedCrypt_01_P` (hors plan, fait immédiatement)
+
+En ouvrant la map pour s'y balader, l'utilisateur s'est retrouvé **sans contrôle** (vue figée en
+16:9, aucun déplacement). Cause identifiée : `RuinedCrypt_01_P` a son **propre GameMode**, fourni
+par le pack (`ThirdPersonGameMode_SF`), avec :
+
+```
+DefaultPawnClass       = ThirdPersonCharacter_SF_C     (pion de démo du pack)
+PlayerControllerClass  = PlayerController natif         (aucun Enhanced Input, aucun mapping)
+```
+
+Ce n'était donc **jamais** le Dark Knight qui aurait pu être piloté sur cette map — pas un bug
+d'input, un mauvais GameMode. **Fix appliqué :** `WorldSettings.default_game_mode` de
+`RuinedCrypt_01_P` repointé sur **`BP_ThirdPersonGameMode`** (le même qu'utilise
+`Lvl_ThirdPerson`, `DefaultPawnClass = BP_DarkKnight_Alert_C`), puis niveau sauvegardé.
+
+**Vérifié en PIE** : seul acteur `Character` présent au spawn = `BP_DarkKnight_Alert_C`. Capture
+d'écran confirmant le HUD (barres vie/endurance) et le décor (cimetière en ruine, portail en bois,
+lumière filtrée à travers les frondaisons) — rendu très souls-like, aucune caméra fixe ni séquence
+en lecture automatique trouvée dans le niveau (recherché explicitement, aucune n'existe).
+
+> Cette correction n'était pas dans le plan d'étapes — traitée à part car elle bloquait
+> totalement l'utilisateur pour repérer sa zone de combat, prérequis à l'Étape 2.
