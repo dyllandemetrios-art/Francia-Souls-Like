@@ -562,13 +562,14 @@ Ajouter à `BPC_Stat` : `OnDeath` (param Actor), `OnHealthDepleted`, `OnHealthCh
 **Test :** un ennemi tué **cesse** de bouger et d'attaquer (aujourd'hui il continue) ; le joueur
 meurt toujours normalement.
 
-### Étape 2 — Peupler le niveau + pose de mort maintenue
-Placer les 2 ennemis manquants, retirer le `BP_ThirdPersonCharacter` résiduel, désactiver le boss
-au départ (caché, IA off), poser un **volume de trigger provisoire**.
+### Étape 2 — Niveau `RuinedCrypt_01_P` + pose de mort maintenue
+**Placement des acteurs par l'utilisateur** (PlayerStart, 3 Morigesh, boss, trigger d'intro) dans
+`RuinedCrypt_01_P` (§17.8). Une fois posé : ajout du `NavMeshBoundsVolume` (absent du pack, requis
+pour l'IA), désactivation du boss au départ (caché, IA off).
 Passer `AM_Morigesh_Death` en **`bEnableAutoBlendOut = false`** (§17.2) — l'anim de base est
 conservée, seul le blend-out est neutralisé.
-**Test :** 3 ennemis actifs ; une Morigesh tuée joue sa mort et **reste au sol** (aujourd'hui elle
-se relèverait en Idle au bout d'1 s).
+**Test :** 3 ennemis actifs dans la crypte, IA fonctionnelle (poursuite/strafe) ; une Morigesh
+tuée joue sa mort et **reste au sol** (aujourd'hui elle se relèverait en Idle au bout d'1 s).
 
 ### Étape 3 — Squelette du Combat Flow
 `ECombatFlowState`, `BP_CombatDirector`, `RequestFlowState`, `Lock/UnlockPlayerControl`, tableau
@@ -686,7 +687,8 @@ observer les transitions, captures d'écran.
 | 10 | **BT partagé ou `BT_Boss` dédié** | Recommandé : rester partagé |
 | 11 | **Manny résiduel** (`BP_ThirdPersonCharacter` à 360,−1080) | Le supprimer du niveau ? |
 | 13 | **Retargeting : compatible skeleton ou IK Retargeter ?** | cf. §17.1 — je peux faire le premier par script, pas le second ; à valider à l'œil en Étape 0 |
-| 15 | **Environnement — réutiliser une map de démo telle quelle ?** | cf. §17.7 — réponse : oui, possible et recommandé pour prototyper vite |
+| — | ~~Environnement~~ | **Tranché : `RuinedCrypt_01_P`** (cf. §17.7-17.8) |
+| 16 | **`NavMeshBoundsVolume` sur `RuinedCrypt_01_P`** | Absent du pack, requis pour que l'IA poursuive — je le pose une fois le placement des ennemis fait, ou l'utilisateur le fait lui-même |
 
 ---
 
@@ -921,6 +923,34 @@ peupler *cette* map plutôt qu'à construire un niveau dédié — le volume de 
 devient directement le volume final, sans repositionnement ultérieur. Aucune autre étape n'est
 affectée : le Combat Flow ne connaît pas le niveau dans lequel il tourne.
 
-> **Décision à prendre :** quelle map (ou quel pack) sert de base ? Une visite rapide en jeu des
-> deux candidats principales (`RuinedCrypt_01_P`, `MedievalCastle`) permettrait de trancher avant
-> l'Étape 2.
+### 17.8 Décision : `RuinedCrypt_01_P` retenue
+
+**`MedievalCastle` écartée** — trop grande pour une scène de combat resserrée (confirmé par
+l'utilisateur après visite). **`RuinedCrypt_01_P` retenue.**
+
+**Placement des acteurs (PlayerStart, 3 ennemis, boss, trigger d'intro) : fait par l'utilisateur
+lui-même**, pas par implémentation automatisée — cohérent avec le fait que le placement d'une
+scène est un choix de mise en scène, pas une donnée technique.
+
+**Inspection de `RuinedCrypt_01_P`** (lecture seule, aucune modification) :
+
+| Élément | État |
+|---|---|
+| `PlayerStart` | **Déjà présent** dans le pack, à (−173, 1758, 212) — l'utilisateur peut le déplacer ou en ajouter un |
+| `NavMeshBoundsVolume` | **Absent** ⚠️ |
+| `RecastNavMesh` | **Absent** ⚠️ |
+| Éclairage | 2× `DirectionalLight`, 2× `SkyLight`, 4× `PostProcessVolume` — niveau déjà composé |
+| Total acteurs | 647 |
+
+> ⚠️ **Point bloquant déjà rencontré sur ce projet** (cf. `CLAUDE.md`, session IA du 30/08) :
+> sans `NavMeshBoundsVolume` couvrant la zone de combat, `AI MoveTo` échoue instantanément à
+> chaque tentative — symptôme trompeur, le Behavior Tree tourne normalement mais l'ennemi reste
+> figé. **Un `NavMeshBoundsVolume` devra être ajouté à `RuinedCrypt_01_P`**, dimensionné sur la
+> zone où l'utilisateur place ses 3 ennemis + le boss, avant que la poursuite/strafe puisse
+> fonctionner dans cette map. Peut être posé par l'utilisateur en même temps que le reste, ou par
+> moi si demandé.
+
+**Impact sur le plan (§13) :** l'Étape 2 (« Peupler le niveau ») devient : *l'utilisateur place
+PlayerStart + 3 Morigesh + boss + trigger dans `RuinedCrypt_01_P`*, puis je pose le
+`NavMeshBoundsVolume` si nécessaire et j'applique le correctif `AM_Morigesh_Death` (§17.2). Aucune
+autre étape n'est affectée — le Combat Flow ne connaît pas le niveau dans lequel il tourne.
