@@ -1,0 +1,37 @@
+# ============================================================
+#  Unreal Engine — fichiers transitoires (jamais versionnes)
+# ============================================================
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# ============================================================
+#  Packs tiers / marketplace — ~23 Go, re-telechargeables
+#  depuis l'Epic Launcher. Exclus car GitHub ne peut pas les
+#  heberger (limite 100 Mo/fichier, ~1 Go/depot recommande).
+#  Retirer une ligne ci-dessous si tu veux versionner ce pack.
+# ============================================================
+Content/MedCastle/
+Content/RuinedCrypt/
+Content/Chaotic_Skies/
+Content/ParagonMorigesh/
+Content/ParagonKhaimera/
+Content/CoreSystems/
+Content/Gothic_Environment/
+Content/Mixed_Magic_VFX_Pack/
+Content/ARPGMusicPack/
+Content/CombatMagicAnims/
+
+# ============================================================
+#  Divers
+# ============================================================
+.codex/
