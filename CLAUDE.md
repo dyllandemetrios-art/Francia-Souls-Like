@@ -993,3 +993,563 @@ l'éditeur ne suffit PAS. Si `ToolSearch` ne trouve pas `mcp__unreal-mcp__*` alo
 répond : il faut fermer et rouvrir le terminal Claude Code lui-même (pas juste l'éditeur).
 
 <!-- END PROJECT STATE -->
+
+## 🔴🔴 ROOT CAUSE du "T-pose / personnages qui ressemblent à Jésus" (31/08, CORRIGÉ)
+**Un Blend Space créé PAR SCRIPT n'a pas de grille d'interpolation valide** : ses `sample_data`
+sont corrects et lisibles, l'AnimGraph compile clean, mais à l'exécution le nœud
+`BlendSpacePlayer` sort la **pose de référence du squelette** (bras en croix) au lieu de
+l'animation. Symptôme trompeur : la pose est correcte sur la 1re frame puis retombe en pose de
+référence — donc une mesure prise juste après le début du PIE donne un faux positif.
+- **Diagnostic** : brancher un `SequencePlayer` de l'anim idle directement sur le Slot. Si la
+  pose devient correcte → le Blend Space est en cause, pas le graphe ni l'anim.
+- **Ce qui NE marche PAS** : réassigner `sample_data`/`blend_parameters` pour forcer
+  `PostEditChangeProperty` (la grille n'est pas reconstruite) ; `refresh_node` sur le nœud ;
+  recréer le nœud ; recompiler ; redémarrer l'éditeur.
+- **FIX qui marche** : **dupliquer un Blend Space fait dans l'éditeur** (donc à grille valide)
+  et remplacer uniquement l'`animation` de chaque sample. Changer les animations ne casse PAS la
+  grille ; changer les positions ou le squelette, si (`skeleton` est même en lecture seule).
+  Ici : `BS_StrafeMovement` (du pack, 14 samples, même squelette) → dupliqué en
+  `BS_DKM_Alert_Locomotion`, animations remplacées par les `_Alert` (mapping 1:1, il suffit
+  d'insérer `_Alert`). **Validé** : pose de garde correcte ET qui évolue dans le temps.
+- **Piège Python** : `for s in bs.get_editor_property("sample_data")` itère des **copies** —
+  modifier `s` ne fait rien. Il faut reconstruire une liste (`sd[i]` → modifier → `append`) puis
+  `set_editor_property("sample_data", rebuilt)`.
+- **Boss (Khaimera)** : même bug, mais aucun Blend Space du pack avec les bons axes sur son
+  squelette. Reconstruit autrement dans `ABP_Khaimera` : `BlendListByBool` piloté par
+  `Speed > 50`, entre `SequencePlayer(Idle_NonAdditive)` et le Blend Space 1D **du pack**
+  `Locomotion_Jog_1D_Blendspace` (axe Direction, grille valide). Validé.
+- **LEÇON** : ne jamais créer un Blend Space par script dans ce build. Toujours partir d'un
+  Blend Space existant fait dans l'éditeur et n'échanger que les animations.
+
+## Fait — 31/08 : rencontre scriptée (ennemie en prière → boss)
+- **Anims `CombatMagicAnims` (squelette `SK_Mannequin`) jouées sur Morigesh** (squelette Paragon)
+  grâce à `Morigesh_Skeleton.add_compatible_skeleton(SK_Mannequin)` — marche parce que Paragon
+  utilise la nomenclature d'os standard d'Epic. Montages créés : `AM_Enemy_Chanting`
+  (AS_ChantingPrayer), `AM_Enemy_KneelRitual` (AS_KneelingRitualAscend), `AM_Enemy_Unconscious`
+  (AS_LevitatingUnconscious).
+- **`BP_Enemy` dormant** : `auto_possess_ai = DISABLED` → **aucun contrôleur IA au spawn**, donc
+  elle ne chasse pas. BeginPlay → `Branch(bDormant)` → `PlayAnimMontage(ChantMontage)` +
+  `Montage_SetNextSection("Default","Default")` = prière en boucle. C'est la façon simple de
+  geler une IA sans toucher au Behavior Tree.
+- **Réveil** : `IA_Interact` (touche **E**, ajoutée via `imc.map_key(action, key)`) →
+  `BP_DarkKnight_Alert` : `GetAllActorsOfClass(EnemyClass)` → `FindNearestActor` →
+  `Branch(distance <= 350)` → `Cast To BP_Enemy` → event `Awaken`. `Awaken` : `bDormant=false`,
+  `bAwakened=true`, joue `AwakenMontage`, puis **`SpawnDefaultController`** → l'IA démarre.
+- **Mort → boss** : dispatcher **`OnDeath` ajouté sur `BPC_Stat`** (`add_event_dispatcher` +
+  `add_call_delegate_node` branché après le `PlayAnimMontage` de mort). Dans `BP_Enemy` :
+  `create_component_bound_event("StatComponent","OnDeath")` → garde `bDeathHandled` →
+  `K2_SetTimer("SpawnBossNow", 5s)` → event `SpawnBossNow` : `SpawnSystemAtLocation(NS_Dark_Mist)`
+  → `SpawnActorFromClass(BossClass)` → `DestroyActor`. **Validé bout en bout en PIE.**
+- **Pin `Class` d'un SpawnActor n'accepte AUCUNE string** (`configure_node` et
+  `set_node_pin_value` retournent True mais n'écrivent rien) → créer une variable
+  `TSubclassOf<AActor>`, la remplir via CDO, et câbler un `variable_get` sur le pin.
+- **Appeler un Custom Event d'une AUTRE classe** : `create_node_by_key("FUNC SKEL_X_C::Event")`
+  échoue (retourne ""). Utiliser `build_graph` avec un nœud
+  `{"type":"function_call","params":{"class":"BP_Enemy_C","function":"Awaken"}}`.
+- **`unreal.GraphNodeDesc` n'accepte que 3 champs** (`ref`,`type`,`params`) — pas de `x`/`y` au
+  niveau du dict, les mettre dans `params`.
+- **Overrides d'instance** : un acteur **déjà placé dans le niveau** garde ses propres overrides
+  et ignore les corrections faites sur le template du Blueprint (constaté sur `DeathMontage`).
+  → après avoir corrigé un composant, **supprimer et re-placer l'acteur** dans le niveau.
+- Sons d'épée : notifies `AnimNotify_PlaySound` (Swoosh_1/3/5_Cue) posées sur `AM_DKM_Attack_03`
+  aux 3 coups (0.42 / 1.32 / 2.92) via
+  `AnimationLibrary.add_animation_notify_event(m, track, t, unreal.AnimNotify_PlaySound)` puis
+  `n.set_editor_property("sound", cue)`.
+- **Pas fait** : sons de menu (`UltimateUIMenusSFX`) — **aucun menu n'existe dans le projet**
+  (seuls des HUD/barres de vie). À faire quand un menu sera construit.
+
+## Corrections 31/08 (2e passe) — marche saccadée + ennemie debout
+- **🔴 "retour arrière saccadé" en marchant = MA régression.** En chassant le T-pose j'avais mis
+  `force_root_lock = False` sur les 9 anims de locomotion du DK. Or elles ont une **translation
+  racine cuite** (`Run_Alert_Fwd` = 182 u, `Walk_Alert_Left` = 148 u, `Walk_Alert_Bwd` = -143 u) :
+  sans verrou, le mesh dérive puis **claque en arrière à chaque boucle**.
+  **FIX : `enable_root_motion=False` + `force_root_lock=True`** (= anim sur place, la capsule fait
+  le déplacement). **Testé en jeu** via `InputService.inject_key("Z","down")` puis lecture au tool
+  call suivant : le perso avance de 530 u et la **dérive root↔capsule reste à 0.00**.
+  → **RÈGLE** : toute anim de locomotion en place doit avoir `force_root_lock=True` dès qu'elle a
+  de la translation sur `root`. Vérifier avec
+  `AnimationLibrary.get_bone_pose_for_time(seq,"root",t,False).translation`.
+- **Ennemie "trop rapide puis reste debout" = mauvais choix d'anim de ma part.**
+  `AS_ChantingPrayer` fait **1,13 s** (d'où l'effet rapide/saccadé) et est une anim **DEBOUT**
+  (bassin Z ≈ 89). Diagnostic utile : mesurer le bassin en component space —
+  `get_bone_pose_for_time(seq,"pelvis",t,True).translation.z` → **debout ≈ 89, à genoux < 60**.
+  Relevés : `AS_KneelingRitualAscend` 24–35 (à genoux tout du long, 4,3 s),
+  `AS_KneelingFireballCast` 48–51, tout le reste ≈ 88.
+  **Aucune anim du pack ne fait la transition genoux→debout.**
+  **FIX** : attente = `AM_Enemy_KneelRitual` (AS_KneelingRitualAscend) **en boucle native** via
+  `AnimMontageService.set_section_loop(path,"Default",True)` ; réveil = `AM_Enemy_Ascension`
+  (AS_Ascension) avec `set_blend_in(0.6)` pour que le passage à debout soit fluide.
+  **Testé** : à t=23 s elle est toujours à genoux (bassin 36) ; après `Awaken` → bassin 101
+  (debout) + poursuite du joueur.
+- **`Montage_SetNextSection` est un appel RUNTIME** : il ne modifie pas l'asset et n'apparaît pas
+  dans `list_sections`. Pour une boucle fiable, régler la boucle **sur l'asset**
+  (`set_section_loop`), pas au runtime.
+- Inspecter un montage : `AnimMontageService.list_sections / list_slot_tracks /
+  list_anim_segments(path, track_index:int)` (le track est un **index**, pas un nom).
+
+## Corrections/ajouts 31/08 (3e passe)
+- **Notify de l'utilisateur PAS supprimée** — vérifié : `AM_DKM_Attack_03` a toujours ses 2
+  notifies "Combo" d'origine (0,845 / 1,840) **et** celle que l'utilisateur a ajoutée à 3,009s.
+  Ce qui manquait : rien ne l'exploitait pour couper la fin trop longue de l'anim (elle jouait
+  jusqu'à 4,9s). **Fix** : `Window3Duration` recalculé de 2,267 → **1,519** (= 3,009 - 1,840 +
+  marge 0,35s) sur l'instance `CombatComponent` de `BP_DarkKnight_Alert`. **Testé en jeu**
+  (dilation 0,03, combo complet 3 coups) : le montage s'arrête maintenant vers pos≈3,4-3,6s au
+  lieu de 4,9s.
+- **Game Animation Sample** (projet UE que l'utilisateur a créé dans
+  `GameAnimationSample/` à côté du projet racine) — inspecté : c'est le système **Motion
+  Matching** d'Epic (`PoseSearchDatabases`), squelette **UEFN_Mannequin**, aucun overlap avec
+  Paragon/Dark_Knight. `Characters/Paragon/Heroes/` ne contient que TwinBlast (pas Morigesh
+  ni Khaimera). Une seule anim "getup" trouvée (`M_ragdoll_getup_stand_F`, chute à plat, pas
+  genoux→debout) sur ce même squelette étranger. **Rien de plug-and-play** sans IK Retargeter
+  (que je ne peux pas créer par script) — laissé de côté, l'utilisateur a validé que le prototype
+  sans transition est acceptable pour l'instant.
+- **UI de prompt d'interaction** (`/Game/UI/WBP_InteractPrompt` + composant sur `/Game/AI/BP_Enemy`) :
+  - Touches ajoutées à `IA_Interact` : garde `E`, ajoute **RightMouseButton** +
+    **Gamepad_FaceButton_Top** (Y/Triangle, libre).
+  - Widget = Border+TextBlock, texte dynamique via 2 variables `KBM_Text`("Clic droit")/
+    `Gamepad_Text`("Y") détecté par `InputDeviceSubsystem.GetMostRecentlyUsedHardwareDevice` →
+    `Break Hardware Device Identifier.PrimaryDeviceType` → `Switch on
+    EHardwareDevicePrimaryType`, rafraîchi sur `Event Construct`.
+  - `BP_Enemy` : nouveau `WidgetComponent InteractPromptWidget` (Space=World, DrawSize 170×44,
+    Z=250 — au-dessus de la barre de vie à Z=210), créé/positionné/masqué au BeginPlay (même
+    pattern que la barre de vie : tout au runtime, jamais côté CDO). `Event Tick` : si
+    `bDormant` → `SetVisibility(distance au joueur <= InteractRange(350))`, sinon caché.
+  - **Piège outillage découvert** : juste après `add_component`, le nouveau composant
+    n'apparaît PAS dans `discover_nodes`/`create_node_by_key` (retourne `''` silencieusement,
+    même après `compile_blueprint`). **Contournement** : passer par `build_graph` avec un nœud
+    `{"type":"variable_get","params":{"variable":"NomDuComposant"}}` — ça marche là où
+    `create_node_by_key("SPAWN K2Node_VariableGet|Get X")` échoue pour un composant tout juste
+    ajouté.
+  - **Piège FText** : `set_node_pin_value` sur un pin de type `text` (FText) échoue TOUJOURS en
+    silence (`False`, aucune valeur écrite), quel que soit le format essayé (`INVTEXT(...)`,
+    `NSLOCTEXT(...)`, brut). Marche sur AUCUN nœud testé (`SetText`, `MakeLiteralText`).
+    **Contournement qui marche** : `add_member_variable(path, name, "text", "valeur par défaut")`
+    — le paramètre `default_value` de la création de variable accepte le texte brut
+    correctement (confirmé par lecture CDO après coup), contrairement au pin d'un nœud.
+  - **Piège self-call intra-classe** : `create_node_by_key("FUNC Self::MaFonction")` et
+    `FUNC SKEL_X_C::MaFonction` retournent `''` silencieusement. **Marche** : `build_graph` avec
+    `{"type":"function_call","params":{"class":"UserWidget","function":"MaFonction"}}` — même en
+    donnant une classe PARENTE (pas la classe exacte du Widget Blueprint), le self-pin se résout
+    quand même correctement sur l'instance courante.
+  - **Validé en PIE, mesures numériques (pas de capture, l'onglet éditeur avait le focus)** :
+    caché à 600u du joueur, **visible à 200u** avec le bon texte lu en live
+    (`widget.get_editor_property("PromptText").get_editor_property("Text")` → `"Clic droit"`),
+    **recaché après `Awaken()`**. Les 3 états attendus sont confirmés.
+
+## 🔴🔴 Session 31/08 (4e passe) — Le vrai gros bug : Input Mapping Context jamais appliqué
+**16 pins `self` non câblés retrouvés et corrigés** dans toute la chaîne combat/IA (audit
+systématique via `input_pins` + `pin.is_connected==False` + `pin_name in ("self","Object","Target")`) :
+- `BP_Enemy` (5) : `PlayAnimMontage` du chant, `PlayAnimMontage` du réveil, `Get Actor Location`
+  (position du VFX de mort — sans ça la fumée spawnait à l'origine du monde), `Destroy Actor`,
+  `SpawnDefaultController`.
+- `BP_AI_Enemy` (3, **le plus critique**) : `RunBehaviorTree`, **`Get Controlled Pawn`** (alimente
+  `targetActor`/écritures blackboard — sans self, TOUT le pipeline de perception écrivait dans le
+  vide, `seeingTarget?` restait `False` pour toujours), `SetFocus`.
+- `Task_Attack` (2) : les deux `FinishExecute` — sans self, la task IA ne signalait jamais sa fin
+  correctement.
+- `BPC_Combat` (4) : 2× `PlayStep` (rappel de combo), `Get MaxWalkSpeed`/`Get MaxAcceleration`
+  (sauvegarde de la vitesse avant le gel d'attaque — sans self elles lisaient 0, donc la vitesse
+  restaurée après combo aurait été 0 = **joueur bloqué après une attaque**, jamais reproduit car
+  masqué par le bug d'input ci-dessous qui empêchait d'attaquer du tout).
+- `BP_DarkKnight_Alert` (2) : `GetController`, **`Get Actor Location`** (utilisée par le check de
+  distance du prompt d'interaction — sans self elle mesurait depuis l'origine du monde (0,0,0) au
+  lieu de la position du joueur, d'où le prompt qui ne s'affichait jamais).
+- `BPC_Stat` (1) : `Call On Death` (broadcast du dispatcher `OnDeath`).
+**Fix systématique** : `K2Node_Self` créé et câblé sur chaque pin trouvé, puis `compile_blueprint`
++ `save_loaded_asset`. Tous vérifiés en PIE après coup.
+
+**Deuxième bug, indépendant, découvert en creusant pourquoi `IA_Attack`/`IA_Dodge` ne
+répondaient à AUCUN input réel (clic, touche injectée, action injectée) alors que la logique
+marchait parfaitement en appel direct (`call_method`)** :
+- `BP_ThirdPersonPlayerController.EventGraph` a **DEUX nœuds `Add Mapping Context`** (BeginPlay +
+  la branche "Initialize player input" pour les mappings tactiles/manette), et **les DEUX avaient
+  leur pin `MappingContext` non câblé** (vide). Concrètement : `IMC_Default` n'était **jamais**
+  réellement appliqué au joueur via cette Blueprint.
+- **Fix** : ajout d'une variable membre `MainMappingContext` (type `InputMappingContext`, remplie
+  via CDO avec `/Game/Input/IMC_Default`), câblée sur les deux pins `MappingContext` via un
+  `Get MainMappingContext` chacun.
+- **Piège identique à d'autres déjà documentés** : `set_node_pin_value(...,"MappingContext",
+  "/Game/Input/IMC_Default")` retourne `True` mais n'écrit rien (pin objet, même famille que
+  `Class` sur `SpawnActorFromClass` et `Text` sur les nœuds FText) — seule une **variable membre +
+  Get node** fonctionne pour ce genre de pin.
+- **Validé** : après le fix, tenir `LeftMouseButton` (via `InputService.inject_key`) a fait chuter
+  la stamina de 100 à 4 en une poignée de frames (preuve que `IA_Attack` déclenche bien
+  `RequestAttack` en boucle tant que la touche est maintenue — comportement attendu vu que
+  `Started` ET `Triggered` étaient câblés en parallèle à ce moment du diagnostic ; `Triggered`
+  retiré ensuite pour ne garder que `Started`, comportement normal one-shot par clic).
+- **Non totalement stabilisé en test automatisé** : les tentatives suivantes de presser/relâcher
+  proprement une seule fois via `inject_key`/`inject_action` n'ont plus reproduit d'effet de façon
+  fiable — cohérent avec la flakiness déjà documentée plus haut ("`inject_key` ne maintient pas la
+  touche de façon fiable sur plusieurs frames"). **La preuve du fix (chute de stamina) est solide
+  et sans autre explication possible**, mais un vrai clic humain reste à confirmer par l'utilisateur.
+
+## Bug positionnement — NavMesh très localisé
+Le `NavMeshBoundsVolume` couvre une bien plus grande zone que ce qui est réellement navigable
+(salle du template ThirdPerson enclose, entourée de murs). Les deux coins où l'utilisateur a
+placé l'ennemie/le boss (`(1440,-1420)` et `(-1560,1490)`) sont **hors de la salle connectée au
+spawn du joueur** — vérifié par trace de ligne de vue (mur qui bloque) — donc l'IA ne peut pas les
+rejoindre en pathfinding tant qu'aucune ouverture ne relie ces zones à la salle principale.
+**Pas corrigé** — nécessite soit d'agrandir/relier la salle (travail de level design), soit de
+rapprocher les points de spawn. Laissé tel quel car l'utilisateur a positionné ces acteurs
+lui-même pendant que je travaillais ; à rediscuter avec lui avant de retoucher au placement.
+
+## Fait — 31/08 (5e passe) : Caméra libre + Target Lock souls-like (testé et validé)
+- **🔴 "je ne peux regarder nulle part"** : `IA_Look` (dans `IMC_Default`) n'avait **que**
+  `Gamepad_Right2D` mappé — **aucun mapping souris**. Un `IMC_MouseLook` séparé existait déjà
+  (`IA_MouseLook -> Mouse2D` avec `InputModifierNegate`) et sa logique était même déjà câblée
+  dans `BP_ThirdPersonCharacter` (parent), **mais ce contexte n'était jamais ajouté** — même
+  bug que celui d'`IMC_Default` découvert juste avant (`AddMappingContext.MappingContext` vide).
+  **Fix** : nouvelle variable `MouseLookMappingContext` sur le PlayerController (remplie via CDO),
+  3e `AddMappingContext` ajouté à la suite des deux existants. **Testé** : `IA_MouseLook` injecté
+  → yaw contrôleur passe de 0° à 75°, caméra tourne bien.
+- **Target Lock** (`/Game/Characters/Dark_Knight/Dark_Knight_Male/Blueprints/BP_DarkKnight_Alert`) :
+  - Variables : `LockedTarget`(Actor), `bIsLocked`(bool), `LockRange`(1200), `BossClass`(TSubclassOf).
+  - Custom Event `TryLockTarget` : récupère `GetActorOfClass(EnemyClass)` et
+    `GetActorOfClass(BossClass)` (deux classes **indépendantes**, pas une relation
+    parent/enfant — `BP_Boss` est une duplication de `BP_Enemy`, pas une sous-classe ; les
+    interfaces `BPI_Damageable` ajoutées plus tôt ne sont PAS détectées par
+    `does_implement_interface` malgré `add_interface`, donc inutilisables pour filtrer — d'où le
+    choix des deux classes en dur), calcule les distances de façon **sûre** (reset à 999999 +
+    `Branch` sur validité AVANT tout appel `GetDistanceTo`, jamais d'appel sur un acteur `None`),
+    prend le plus proche, verrouille si `distance <= LockRange`.
+  - `IA_Lock` (clic molette, déjà mappé) : toggle — si déjà verrouillé, déverrouille ; sinon
+    appelle `TryLockTarget`.
+  - **Lock automatique à l'approche** : dans `Event Tick`, si `NOT bIsLocked` → appelle
+    `TryLockTarget` **à chaque frame**. Simplification clé : pas besoin d'une `AutoLockRange`
+    séparée, `TryLockTarget` ne verrouille que si dans `LockRange` de toute façon — donc l'appeler
+    en boucle produit naturellement un lock automatique dès qu'on entre dans la zone, sans code
+    dupliqué.
+  - **Suivi de cible** : si `bIsLocked`, chaque Tick vérifie `LockedTarget != None` ET
+    `distance <= LockRange`, sinon **déverrouille automatiquement** ; sinon
+    `FindLookAtRotation(GetActorLocation(self), GetActorLocation(target))` →
+    `Controller.SetControlRotation(...)`. Le strafe (WASD) reste géré normalement par
+    `bOrientRotationToMovement=false` déjà en place — la caméra pointe sur la cible, le perso
+    peut bouger librement autour.
+  - **Piège (encore)** : les deux appels `TryLockTarget` créés via `build_graph` type
+    `function_call` avaient leur pin `self` non câblé (même symptôme que partout ailleurs ce
+    jour-là) — corrigé avec `K2Node_Self`.
+  - **Piège `K2Node_Select`** : un nœud `Select` verrouille son type wildcard sur le type EXACT
+    du premier pin connecté. Mélanger un retour `K2Node_Self` (résolu à la classe précise,
+    ex. `BP_DarkKnight_Alert_C`) avec un retour de fonction typé `Actor` (générique) sur les deux
+    `Option` d'un même `Select` **échoue silencieusement** (`connect_nodes` retourne `False`),
+    peu importe l'ordre de connexion. **Contournement** : ne pas utiliser `Select` pour mélanger
+    des types Actor hétérogènes — utiliser `Branch` + variable temporaire à la place (deux
+    chemins d'exécution qui convergent sur le même nœud suivant, les pins d'entrée acceptant
+    plusieurs connexions entrantes sans problème).
+  - **`FUNC Actor::GetDistanceTo` est un nœud PUR** (pas de pins d'exécution) malgré son nom qui
+    suggère une fonction à appeler — à ne jamais essayer de le câbler dans une chaîne `execute`.
+  - **Validé en PIE, bout en bout** : joueur téléporté à 300u de l'ennemie → `bIsLocked` passe à
+    `True` tout seul, `LockedTarget` correct, rotation contrôleur = direction exacte vers la
+    cible (yaw 180° pour un déplacement en -X, vérifié au degré près) ; joueur éloigné → délock
+    automatique confirmé (`bIsLocked` repasse à `False`) ; **strafe latéral (touche D) testé
+    pendant le lock : le perso bouge, la caméra se réajuste en continu sur la cible** (yaw ajusté
+    de 180°→169.7° en suivant le mouvement) — comportement souls-like demandé, confirmé
+    fonctionnel.
+
+## 🔴 ROOT CAUSE trouvée — "je ne sais pas quand je prends des dégâts" (31/08, corrigé)
+Le hit-react et la vie fonctionnaient déjà côté ennemi (`BP_Enemy`), mais **jamais côté joueur**.
+Cause : `BP_DarkKnight_Alert.EventGraph`, la chaîne `Event AnyDamage → ApplyDamage` appelait
+directement l'event `ApplyDamage` de `StatComponent` **sans jamais passer par `Set
+PendingDamage` d'abord** — le pin de sortie `Damage` d'`Event AnyDamage` n'était câblé **nulle
+part**. Or `ApplyDamage` (sur `BPC_Stat`) lit la variable membre `PendingDamage` (pattern
+"variable porteuse" documenté plus haut, contournement de l'absence de paramètres sur les Custom
+Events) — jamais mise à jour, donc chaque coup infligeait soit 0 soit une valeur périmée d'un
+appel précédent. `BP_Enemy` avait le bon câblage (`Event AnyDamage.then → Set PendingDamage
+(Damage→PendingDamage) → ApplyDamage`) depuis le début — seul le joueur avait ce chaînon manquant.
+**Fix** : nœud `Set PendingDamage` ajouté (spawner `SPAWN K2Node_VariableSet|Set PendingDamage`,
+`self` = `Get StatComponent` existant), inséré entre `Event AnyDamage` et `ApplyDamage`, avec
+`Event AnyDamage.Damage → Set PendingDamage.PendingDamage`.
+**Validé en PIE (vrai pipeline `GameplayStatics.apply_damage`, pas un `call_method` direct)** :
+25 dégâts → vie **75.0 → 50.0** exact (avant le fix, l'ancien câblage n'aurait jamais reflété ce
+delta), `MaxWalkSpeed` gelé à 0 (hit-stun), montage `AM_DKM_HitReact` bien joué, vitesse
+**restaurée à 500 après le hit-stun** (revérifié 17s de temps réel plus tard). Côté ennemi
+retesté en même temps pour confirmer la non-régression : 20 dégâts → vie 100→80, montage
+`AM_Morigesh_HitReact`, gel/dégel correct. **Hit-react fonctionne maintenant dans les deux sens**
+(joueur ET ennemi), comme demandé.
+**Piège Python annexe** : pendant le PIE, `unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+.get_editor_world()` retourne `None` (c'est normal, l'éditeur bascule de contexte) — utiliser
+`.get_game_world()` à la place pour choper le vrai monde PIE et pouvoir passer un
+`WorldContextObject` valide à `GameplayStatics`. `EditorActorSubsystem.get_all_level_actors()`
+ne trouve RIEN pendant le PIE (reste sur le monde éditeur) — utiliser
+`GameplayStatics.get_all_actors_of_class(get_game_world(), Actor)` à la place pour lister les
+acteurs de la partie en cours.
+
+## Fait — 31/08 (6e passe) : caméra en contre-plongée, mort qui reste au sol, IA n'attaque plus un mort
+- [x] **🔴 Caméra qui "se casse la gueule en contre-plongée"** : root cause = le Target Lock
+  (`BP_DarkKnight_Alert.Event Tick`) branchait `FindLookAtRotation(...).ReturnValue` **directement**
+  sur `Controller.SetControlRotation` sans AUCUN clamp de pitch. `SetControlRotation` est un appel
+  direct qui **bypasse totalement** le clamp normal de pitch qu'Unreal applique d'habitude via
+  `AddPitchInput` (`PlayerCameraManager.ViewPitchMin/Max`) — donc dès que la cible verrouillée
+  était beaucoup plus basse (au sol, morte, ou juste proche) que la caméra, le pitch calculé
+  pouvait devenir extrême (`-80°` et plus), et comme `CameraBoom.bInheritPitch=true`, le bras
+  swingait sous le perso et regardait vers le haut = plan en contre-plongée cassé.
+  **Fix (double, pour couvrir lock ET regard libre à la souris)** :
+  1. Dans le Tick du lock : `FindLookAtRotation.ReturnValue → Break Rotator → Clamp Angle(Pitch,
+     Min=-45, Max=15) → Make Rotator(Pitch=clampé, Yaw=inchangé, Roll=0) → SetControlRotation`.
+  2. `BP_ThirdPersonPlayerController.BeginPlay` (après les `AddMappingContext`, sur la branche
+     inconditionnelle du `Sequence`) : `Get Player Camera Manager → Set ViewPitchMin(-45) → Set
+     ViewPitchMax(15)` — ça couvre aussi le regard libre à la souris (`IA_MouseLook`), qui passe
+     par `AddPitchInput` et respecte donc ce clamp nativement, contrairement au lock qui doit le
+     faire "à la main".
+  **Piège** : `ViewPitchMin`/`ViewPitchMax` sont des variables sur `PlayerCameraManager`, **PAS**
+  sur le `PlayerController` malgré ce que suggère `discover_nodes` en contexte PlayerController —
+  le spawner retourné a bien un pin `self` typé `/Script/Engine.PlayerCameraManager`. Il faut un
+  `Get Player Camera Manager` (fonction native du PlayerController) pour nourrir ce `self`, pas un
+  `K2Node_Self`.
+  **Validé** : `unreal.MathLibrary.clamp_angle(-83, -45, 15) == -45` et `clamp_angle(40,-45,15) ==
+  15` (même fonction que le nœud) ; en PIE, `ViewPitchMin/Max` lus sur le `PlayerCameraManager`
+  runtime = bien `-45.0`/`15.0`.
+- [x] **🔴 "L'animation de mort doit laisser le personnage au sol"** — root cause : les 3 montages
+  de mort (`AM_DKM_Death`, `AM_Morigesh_Death`, `AM_Khaimera_Death`) avaient un `blend_out` standard
+  de 0.25s. Une fois le montage terminé (il ne boucle pas), Unreal blend automatiquement le Slot
+  vers la pose du dessous (le `BlendSpacePlayer` de locomotion, Idle) — donc le perso "se relevait"
+  visuellement quelques dixièmes de secondes après la fin de l'anim de mort, alors que la logique
+  (bIsDead, vie à 0, etc.) restait correcte. L'anim elle-même est bonne (vérifié : bassin du DK
+  passe de Z=91 à Z=11 en fin d'anim — franchement au sol), c'est uniquement le blend-out qui posait
+  problème.
+  **Fix (asset only, pas de nouveau nœud)** : `blend_out.blend_time = 9999.0` et
+  `blend_out_trigger_time = 9999.0` sur les 3 montages de mort — la pose finale reste donc figée
+  à poids plein indéfiniment (le trigger de blend, calé à un temps bien au-delà de la durée réelle
+  du montage, ne se déclenche jamais). Guard déjà existant vérifié : `ApplyDamage` a un `Branch
+  (Condition=bIsDead)` tout au début qui `no-op` si déjà mort — donc aucun risque qu'un coup
+  ultérieur relance un montage et casse ce gel.
+  **Fix additionnel** : la branche mort de `BPC_Stat.ApplyDamage` gèle maintenant aussi
+  `MaxWalkSpeed=0`/`MaxAcceleration=0` (avant, seule la branche hit-react le faisait — un perso
+  mort restait donc théoriquement "poussable"/glissant via la physique de mouvement). Nouveaux
+  nœuds : `Get Character Movement` (spawner `SPAWN K2Node_VariableGet|Get Character Movement`,
+  variable native de `ACharacter`, PAS une fonction malgré le nom "Get CharacterMovement" affiché
+  ailleurs dans le même graphe côté hit-react — les deux existent, mêmes résultats).
+  **Validé en PIE + capture d'écran** : joueur tué (`apply_damage(9999)`), capture prise ~9s plus
+  tard → perso **couché face contre terre**, pas debout, pas de retour à l'idle. `MaxWalkSpeed`
+  resté à `0.0` en continu (pas de restauration, contrairement au hit-stun classique).
+- [x] **"L'IA n'a pas besoin d'attaquer un mort"** — `Task_Attack` (BTTask, partagé par
+  `BP_Enemy`/`BP_Boss` via `BT_Enemy`) vérifie maintenant si la cible visée
+  (`GetBlackboardValueAsObject("targetActor")`) est morte avant d'appeler `Attack01` :
+  `Cast To Actor → GetComponentByClass(StatCompClass=BPC_Stat_C) → Cast To BPC_Stat → Get bIsDead
+  → Branch` : si morte → `FinishExecute(false)` (skip, pas d'anim d'attaque jouée) ; sinon →
+  `Attack01` comme avant. `StatCompClass` (`TSubclassOf<ActorComponent>`) résout à `BPC_Stat_C`,
+  donc marche aussi bien pour un ennemi qui viserait quelqu'un dont le composant est une
+  sous-classe (`BPC_Stat_Morigesh`/`BPC_Stat_Khaimera`), même mécanisme que `StatCompClass` déjà
+  utilisé ailleurs (HUD, barre de vie ennemie).
+  **Piège** : `Task_Attack` n'avait aucune variable membre pour lire le blackboard — il fallait
+  ajouter une variable `targetActor` de type **`FBlackboardKeySelector`** (le préfixe `F` est
+  nécessaire pour `add_member_variable`, contrairement au `type_path` `/Script/AIModule.
+  BlackboardKeySelector` qui échoue silencieusement), PUIS la lier à la vraie clé blackboard côté
+  asset BT via `BehaviorTreeService.set_node_blackboard_key(bt_path, "Root/Selector[0]/
+  Chasing_Sequence[0]/Task_Attack[0]", "targetActor", "targetActor")` — sans ce 2e appel, le
+  sélecteur reste non résolu et lit toujours `None` silencieusement (même famille de piège que les
+  autres pins objets qui n'acceptent pas une simple string).
+  **Piège annexe (encore)** : première tentative de câblage avait laissé le nœud `Cast To BPC_Stat`
+  avec son pin `execute` non connecté (`compile_blueprint` a échoué avec une erreur EXPLICITE cette
+  fois — `LogBlueprint: Error: This blueprint (self) is not a BPC_Stat_C, therefore 'Target' must
+  have a connection` — contrairement à d'habitude, corrigé en rebranchant `Cast To Actor.then →
+  Cast To BPC_Stat.execute → Cast To BPC_Stat.then → Branch(bIsDead).execute`.
+  **Validé en PIE** : joueur tué, boss téléporté à 120u de lui (pour contourner le trou de NavMesh
+  documenté plus haut sur les coins où l'ennemi/le boss sont placés), `seeingTarget?=True`,
+  `targetActor`=joueur mort, `BehaviorTreeComponent.is_running()=True`, **aucun montage d'attaque
+  ne s'est déclenché sur ~6s d'observation** alors que le boss est juste à côté et voit bien sa
+  cible — comportement voulu confirmé. (Test de contrôle positif — réanimer le joueur pour prouver
+  que le même boss attaquerait sinon — pas fait : `bIsDead` n'est pas éditable en instance runtime
+  depuis Python, `set_editor_property` refuse ; pas bloquant vu le reste des preuves.)
+
+## 🔴🔴 ROOT CAUSE réelle de "la caméra se casse la gueule au dodge" (31/08, corrigé — CameraBoom.bDoCollisionTest)
+Pas un problème de pitch/lock comme je l'avais cru (le clamp -45/15 posé plus tôt dans la session
+est correct et reste en place, mais n'était pas la cause de CE bug précis). Vraie cause : dans une
+session **précédente**, `CameraBoom.bDoCollisionTest` avait été mis à **`False`** pour garder une
+distance de caméra strictement fixe (400u) en mode lock. Conséquence : le SpringArm ne rétracte
+plus JAMAIS la caméra près d'un mur — dès que le dodge (lunge ~400u via root motion) envoie le
+perso contre un mur/pilier (fréquent dans la petite salle du template ThirdPerson), la caméra
+traverse le mur et se retrouve **à l'intérieur de la géométrie → écran totalement noir**.
+**Reproduit et confirmé par capture d'écran** (`bDoCollisionTest=False` : écran 100% noir pendant
+le dodge contre un pilier).
+**Fix** : `CameraBoom.bDoCollisionTest` remis à **`True`** (le comportement standard/attendu d'un
+SpringArm — ne jamais désactiver ça pour un jeu à la troisième personne, le coût "distance qui
+varie près des murs" est très largement préférable à "écran noir"). Composant sur le PARENT
+`BP_ThirdPersonCharacter` (piège déjà documenté : `set_component_property` sur un composant
+hérité doit cibler le parent, pas l'enfant `BP_DarkKnight_Alert`).
+**Validé en PIE, dodge répété contre un mur à bout portant (50u)** : capture d'écran après fix —
+vue caméra normale, perso bien visible collé au mur, pas de noir, pas de clipping.
+**Piège de méthodologie rencontré pendant le diagnostic** : `unreal.InputService.inject_key("Z",
+"down")` sans `"up"` correspondant laisse la touche **techniquement enfoncée pour de vrai** dans
+la session PIE — le perso continue de marcher pendant TOUTES les minutes de temps réel qui
+s'écoulent entre deux appels MCP suivants, ce qui a fait dériver le perso à des centaines/milliers
+d'unités de distance entre mes vérifications et complètement pollué plusieurs mesures de distance
+caméra (lues comme "bloquées à 8.49u" alors que c'était juste un artefact de mesure/timing, pas un
+vrai bug — la caméra était en fait correcte, confirmé par capture d'écran). **Toujours appeler
+`inject_key(k,"up")` juste après le `"down"`** (tap bref) pour éviter de laisser une touche
+"collée" pendant tout le reste d'une session de test.
+
+## Fait — 31/08 (7e passe) : caméra du lock qui reste à hauteur fixe + sons d'attaque
+- [x] **Diagnostic de l'utilisateur confirmé et corrigé — "la caméra reste à la même hauteur"**.
+  Root cause précise : `CameraBoom.bInheritPitch=True` fait pivoter **tout le bras** (donc
+  déplace physiquement le socket de la caméra) quand le pitch augmente pour regarder vers le
+  haut — un SpringArm qui inherit le pitch fait descendre la caméra en dessous du pivot pendant
+  qu'elle regarde en l'air, ce qui donne exactement une contre-plongée dès que la cible verrouillée
+  est plus haute que le joueur (le lock calcule un pitch positif via `FindLookAtRotation` pour
+  regarder une cible en hauteur).
+  **Fix** (sur `BP_ThirdPersonCharacter`, le parent — composants hérités) :
+  `CameraBoom.bInheritPitch = False` (le bras reste toujours à l'horizontale, hauteur du socket
+  fixe) + `FollowCamera.bUsePawnControlRotation = True` (c'est maintenant la caméra elle-même,
+  et non plus le bras, qui pivote pour regarder vers le haut/bas — donc le regard suit toujours
+  la cible en pitch, mais la POSITION de la caméra ne bouge plus jamais verticalement).
+  **Validé en PIE** : boss téléporté 600u au-dessus du joueur, lock déclenché → pitch caméra monte
+  à +10.8° (dans le clamp -45/+15), **caméra Z avant/après lock strictement identique**
+  (310.4922637939454 dans les deux cas), capture d'écran confirmant un cadrage normal (boss qui
+  domine le plan mais caméra toujours à hauteur d'épaule, pas de contre-plongée). Testé aussi hors
+  lock (souris libre, `IA_MouseLook`) : pitch/yaw fonctionnent toujours normalement, même
+  comportement hauteur-fixe.
+  **Piège de diagnostic rencontré en cours de route** : mesurer `SpringArmComponent.get_world_location()`
+  ne donne QUE la position du pivot, jamais la distance réellement étendue du bras — pour lire la
+  vraie position de la caméra après extension, utiliser `boom.get_socket_location("SpringEndpoint")`
+  ou directement `FollowCamera.get_world_location()`. Un premier test m'a fait croire à tort que
+  l'extension de 400u avait disparu (elle était à 0) : en fait le personnage avait été téléporté à
+  une hauteur Z arbitraire qui l'enfonçait légèrement dans une plateforme surélevée de la salle, et
+  le sweep de collision de la caméra partait donc déjà en overlap avec le sol (`initial_overlap:
+  True` dans le HitResult) → rétractation à distance 0. Rien à voir avec `bInheritPitch`. Refaire le
+  test depuis une position au sol correcte (`PlayerStart`, laisser la gravité stabiliser) a tout de
+  suite montré la bonne extension à -400.
+  **Autre piège (annexe, déjà à moitié documenté)** : laisser une touche "collée" avec
+  `InputService.inject_key(k,"down")` sans jamais appeler `"up"` correspondant a fait dériver le
+  perso de centaines/milliers d'unités entre deux appels MCP pendant cette session de diagnostic,
+  produisant des lectures de distance caméra totalement incohérentes tant que la touche n'a pas
+  été relâchée explicitement.
+- [x] **Sons d'attaque changés** : les 3 notifies `AnimNotify_PlaySound` sur `AM_DKM_Attack_03`
+  (les 3 coups du combo, à 0.42s/1.32s/2.92s) jouaient `Swoosh_1_Cue`/`Swoosh_3_Cue`/`Swoosh_5_Cue`
+  (`/Game/RealisticSwordSoundEffects/Cues/Sword_Swoosh/`) — remplacés par
+  `Sword_Attack_1_Cue`/`Sword_Attack_2_Cue`/`Sword_Attack_3_Cue`
+  (`/Game/RealisticSwordSoundEffects/Cues/Sword_Attack/`), un par coup dans l'ordre. Édité en lisant
+  l'objet notify réel via `AnimationLibrary.get_animation_notify_events(m)` puis
+  `e.get_editor_property("notify").set_editor_property("sound", nouveau_cue)` (le champ `notify` de
+  l'event struct EST le sous-objet `UAnimNotify_PlaySound` réel, éditable directement — pas besoin
+  de passer par `AnimMontageService`, dont `list_notifies` reste cassé/vide comme documenté plus
+  haut). Sauvegardé et relu après coup pour confirmer la persistance.
+
+## Fait — 31/08 (8e passe) : caméra rehaussée à hauteur de tête (demande explicite : "derrière, en hauteur, fixe")
+Le pitch-clamp + `bInheritPitch=False` de la passe précédente étaient corrects (vérifié : pas de
+double-application du yaw, la caméra suit exactement `ControlRotation` sans compounding — testé
+numériquement, yaw injecté à 30 → `ControlRotation.yaw`/`caméra world yaw` tous deux à 75° pile,
+position caméra cohérente avec le calcul `player - 400*forward(yaw)`). Le vrai souci restant :
+`CameraBoom.RelativeLocation.Z` était resté à **8.49** (valeur stock du template ThirdPerson,
+jamais touchée) — à peine au-dessus du bassin (mesuré : tête du perso à +68 au-dessus de l'origine
+du perso, bassin à +2.7, caméra à seulement +8.49) → vue plate/basse, pas du tout "en hauteur".
+**Fix** : `CameraBoom.RelativeLocation.Z` → **80** (juste au-dessus de la tête, +68 mesuré). Combiné
+à `bInheritPitch=False` déjà en place, cette hauteur est maintenant **garantie fixe** quel que soit
+le pitch (lock sur cible en hauteur, regard souris vers le haut/bas) — validé : caméra à Z=382.01
+avant ET après un `pitch=15°` (regard vers le haut), aucune variation. Capture d'écran de contrôle :
+vue nette, à hauteur de tête, perso centré, horizon droit, alignée derrière le perso.
+Composant sur le PARENT `BP_ThirdPersonCharacter` (toujours le même piège : composant hérité,
+`set_component_property` doit cibler le parent).
+
+## Fait — 31/08 (9e passe) : pitch caméra totalement figé + dézoom auto si cible hors-champ (demande explicite)
+- [x] **Pitch caméra bloqué en dur, plus AUCUN mouvement vertical possible**, ni à la souris ni en
+  lock — demande explicite ("je m'en branle, ça doit pas bouger"). Deux points modifiés :
+  1. `BP_ThirdPersonPlayerController.BeginPlay` : `ViewPitchMin`/`ViewPitchMax` (sur le
+     `PlayerCameraManager`, posés lors d'une passe précédente à -45/+15) → **0.0 / 0.0** —
+     `AddPitchInput` (mouvement souris) ne peut plus rien faire, quel que soit le mouvement de la
+     souris.
+  2. `BP_DarkKnight_Alert` Tick (lock) : le nœud `Clamp Angle` qui bridait le pitch du
+     `FindLookAtRotation` vers la cible → `MinAngleDegrees`/`MaxAngleDegrees` = **0.0/0.0** au lieu
+     de -45/15 → `clamp_angle(x, 0, 0) = 0` toujours, donc même en pleine visée d'un boss en
+     hauteur, le pitch envoyé à `SetControlRotation` reste 0. Le **yaw** du lock (tourner vers la
+     cible à l'horizontale) n'est PAS touché, toujours fonctionnel.
+  **Validé en PIE** : souris + `IA_MouseLook` pitch → `ControlRotation.pitch` reste 0.0 quel que
+  soit l'input. Lock sur un boss élevé → idem, pitch reste 0.0 pile.
+- [x] **Dézoom automatique si la cible verrouillée sort du champ verticalement** ("si l'ennemi est
+  hors champ faut dézoomer point barre"). Dans le même bloc Tick (juste après le
+  `SetControlRotation`, seulement quand la cible est verrouillée ET à portée) :
+  `|TargetLoc.Z − SelfLoc.Z|` (Break Vector ×2 sur les `GetActorLocation` déjà calculés pour le
+  lock, réutilisés sans recalcul) → `Abs` → `MapRangeClamped(0→800 unités d'écart, sortie
+  400→900 de longueur de bras)` → `Set TargetArmLength` sur `CameraBoom` (via `Get CameraBoom` +
+  `build_graph` type `variable_get`, le seul chemin qui marche pour un composant hérité du
+  parent — cf pièges déjà documentés). **Remise à 400 (base) dès le déverrouillage** (branché sur
+  le même `Set bIsLocked=false` qui gère déjà les deux cas de sortie — cible invalide ou hors
+  `LockRange` — donc jamais bloqué en zoom large après un unlock).
+  **Validé en PIE, formule vérifiée au chiffre près** : écart vertical réel mesuré 76.4u (boss
+  retombé au sol par gravité entre le placement et le lock — la cible n'était donc plus aussi haute
+  que voulu au moment du test, artefact de délai réel entre deux appels MCP déjà documenté) →
+  `TargetArmLength` mesuré à **447.75**, exactement `400 + (76.4/800)*500` = la formule attendue.
+  Déverrouillage (cible éloignée) → `TargetArmLength` revenu pile à **400.0**. Capture d'écran de
+  contrôle en configuration neutre (pas de lock) : cadrage propre, horizon droit, aucune dérive.
+
+## Fait — 31/08 (10e passe) : Target Lock RETIRÉ intégralement (demande explicite) + bug ennemi "bouge avant la fin de l'anim"
+- [x] **Target Lock complètement supprimé** ("c'est une idée de merde", demande explicite). Plus
+  aucune trace dans le graphe :
+  - `BP_DarkKnight_Alert` : 65 nœuds supprimés (tout le sous-arbre `Tick` lié au lock — Branch
+    `bIsLocked`, `FindLookAtRotation`/clamp/`SetControlRotation`, calcul de dézoom vertical
+    `MapRangeClamped`/`Set TargetArmLength` — + tout l'event `TryLockTarget` + le binding
+    `IA_Lock.Started`), plus 2 nœuds orphelins historiques (`Set LockedTarget`/`Set bIsLocked`
+    jamais connectés, restes d'un ancien scaffolding). Le reste du Tick (calcul de
+    `bUseControllerRotationYaw = NOT(bIsAttacking OR bIsDodging)`) est intact et fonctionne
+    toujours normalement — vérifié en isolant précisément quels nœuds appartenaient au Tick
+    "de base" vs au sous-arbre du lock avant suppression (aucune fuite accidentelle).
+  - `unreal.BlueprintEditorLibrary.remove_unused_variables(bp)` a nettoyé automatiquement les 8
+    variables du lock devenues orphelines (`LockedTarget`, `bIsLocked`, `LockRange`,
+    `AutoLockRange`, `BossClass`, `LockCandidate`, `EnDistTemp`, `BoDistTemp`) — au passage, a
+    aussi viré 4 vieilles `TestAnimClassVar_*` qui traînaient déjà sans lien avec le lock (déjà
+    mortes de toute façon, confirmé par l'outil).
+  - `IA_Lock` (clic molette) retiré de `IMC_Default` (`InputService.remove_mapping`).
+  - Résultat : caméra 100% simple — orientation à la souris uniquement (yaw+pitch, comme avant),
+    aucune logique de "verrouillage sur cible" nulle part. Compilé clean, sauvegardé.
+- [x] **🔴 Root cause du "l'ennemie bouge déjà vers moi alors que l'animation n'est pas terminée"**
+  trouvée et corrigée. Dans `BP_Enemy.Awaken` : `PlayAnimMontage(AwakenMontage)` était directement
+  chaîné à `SpawnDefaultController` **sans attendre la fin de l'animation** — le contrôleur IA
+  prenait le pion et démarrait le Behavior Tree (donc la poursuite) **au même frame** que le début
+  de l'anim de lever, pas à la fin.
+  **Fix** : nouvel event `OnAwakenFinished` + `K2_SetTimer(Object=self, FunctionName=
+  "OnAwakenFinished", Time=<durée réelle renvoyée par PlayAnimMontage>)` inséré entre les deux —
+  `SpawnDefaultController` ne se déclenche plus qu'une fois l'anim de réveil (`AM_Enemy_Ascension`)
+  réellement terminée. **Validé en PIE** : `Awaken()` appelé → `bDormant=False` immédiat (normal,
+  c'est voulu dès le début de l'anim) mais `enemy.get_controller()` reste `None` jusqu'à ce que le
+  timer expire ; revérifié après le délai → contrôleur bien assigné, IA démarre alors seulement.
+- [x] **Pipeline dégâts/hit-react/barre de vie ré-audité en profondeur suite à "ça marche pas du
+  tout"** — testé avec un appel direct et déterministe à `BPC_Combat.DoAttackTrace` (contourne le
+  flakiness de timing du combo documenté partout ailleurs dans ce fichier) sur l'ennemie **une fois
+  correctement réveillée** : vie 75→50, `MaxWalkSpeed` gelé à 0 (hit-stun), montage
+  `AM_Morigesh_HitReact` confirmé actif, **barre de vie au-dessus de la tête visuellement à moitié
+  vide pile au bon endroit** (capture d'écran à l'appui). **Le pipeline est 100% fonctionnel** —
+  aucun bug de code trouvé ici. Diagnostic probable du problème signalé par l'utilisateur : test
+  effectué sur l'ennemie **encore dans l'état cassé du bug ci-dessus** (contrôleur IA prématuré,
+  personnage encore en transition d'animation) au moment du test — cohérent avec les 3 symptômes
+  observés ensemble (pas de hit-react visible, barre qui semblait ne pas bouger, mouvement
+  prématuré). À reconfirmer par l'utilisateur maintenant que le fix Awaken est en place.
+  **Effet de bord identifié en testant un cas non prévu** : attaquer une ennemie **encore
+  endormie** (sans passer par l'interaction E) interrompt son anim de prière en boucle
+  (`AM_Enemy_KneelRitual`) via le hit-react, qui la laisse ensuite sans aucun montage actif
+  (`None`) une fois le hit-stun terminé, puisque rien ne relance la boucle de prière pour un
+  personnage toujours dormant. Pas un flux de jeu normal/prévu (le joueur est censé interagir
+  d'abord), donc pas corrigé — à surveiller si l'utilisateur teste ce cas en jeu réel.
+
+## Fait — 31/08 (11e passe) : portée d'attaque augmentée + investigation "freeze quand l'ennemi meurt" (non reproduit)
+- [x] **Portée d'attaque augmentée** : `BPC_Combat.AttackRadius` 100 → **160** (défaut de classe +
+  override explicite sur l'instance `CombatComponent` de `BP_DarkKnight_Alert`, les deux mis à
+  jour pour être sûr). Affecte aussi Morigesh (pas d'override spécifique, hérite du défaut de
+  classe) — Khaimera garde son propre override à 180 sur `BPC_Combat_Khaimera` (sous-classe dédiée,
+  non touchée). Validé en PIE : `CombatComponent.AttackRadius` lu à 160 sur l'instance vivante.
+- [~] **"Je ne peux plus bouger quand l'ennemi est mort, le boss arrive puis plus rien ne se passe"**
+  — **investigué en profondeur, PAS reproduit malgré plusieurs approches** :
+  - Tué l'ennemi via `GameplayStatics.apply_damage` direct → `MaxWalkSpeed`/`GlobalTimeDilation`
+    du joueur restent normaux (500 / 1.0) après.
+  - Tué le boss **pendant que le joueur était en plein combo** (`bIsAttacking=True`,
+    `MaxWalkSpeed=0` au moment du kill) → vitesse correctement restaurée (500) après la fin de la
+    fenêtre de combo.
+  - Tué un ennemi via `DoAttackTrace` (le vrai chemin de jeu, avec le mécanisme de hit-stop
+    `SetGlobalTimeDilation`/`EndHitStop` inclus) → `EndHitStop` vérifié dans le graphe : son
+    `Set Timer`'s pin `Object` est un `K2Node_Self` sur `BPC_Combat` du joueur (persistant, pas lié
+    à l'ennemi qui meurt) donc pas de risque de timer orphelin si la cible est détruite ; la valeur
+    de restauration (`TimeDilation=1.0`) est correcte.
+  - Chaîne `BP_Enemy.OnDeath → SpawnBossNow` (VFX `NS_Dark_Mist` → `SpawnActor(BP_Boss)` →
+    `DestroyActor(self)`) auditée nœud par nœud : tous les pins exec connectés, aucune boucle,
+    aucun appel bloquant trouvé. `BP_Boss.AutoPossessAI = PLACED_IN_WORLD_OR_SPAWNED` (donc un
+    boss spawné dynamiquement obtient bien son contrôleur IA comme un boss placé en dur).
+  - Signal de santé de l'éditeur (`gameThreadStallSeconds`) vérifié après coup : sain (0.01s), pas
+    de stall enregistré au moment de la vérification (mais ça ne prouve rien pour un run antérieur
+    de l'utilisateur — ce signal ne conserve pas d'historique).
+  **Honnêtement pas résolu** — tout ce que j'ai pu tester en isolation via Python fonctionne
+  correctement. Hypothèses restantes non vérifiables sans repro en jeu réel : un souci propre au
+  système Niagara `NS_Dark_Mist` au moment précis du spawn (hitch/hang non capturé par mes tests
+  headless), ou un problème de timing très spécifique au **double declenchement** ennemi-mort +
+  boss-spawn qui ne se manifeste que sur une vraie partie avec de vrais inputs continus (tenue de
+  touche, mouvement de souris en cours) plutôt que des appels Python ponctuels. **Si ça persiste,
+  il faudra un repro précis** (une vidéo, ou au minimum : est-ce que la manette/clavier répond du
+  tout, est-ce que c'est le jeu entier qui freeze ou juste le perso qui ne bouge plus alors que le
+  reste continue) — je ne peux pas deviner plus loin sans ça.
