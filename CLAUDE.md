@@ -1875,3 +1875,7 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - CAC : `AS_Revelation` retargetée vers Khaimera (`RTG_AS_Revelation` + `AM_Khaimera_Revelation`), 3 zones de feu sur 6,8 s. Khaimera passe `bCanBeDamaged=false` pendant ce cast puis redevient vulnérable à `FinishFireCast`.
 - Distance : `AS_FireballSpell` retargetée (`RTG_AS_FireballSpell` + `AM_Khaimera_FireballSpell`), jouée à 1,3x pour tenir dans la fenêtre de 3 s ; les deux tirs temporisés existants sont conservés.
 - Validation PIE déterministe : CAC à250u = montage Revelation, exactement3 AOE, zéro projectile, test de50 dégâts ignoré (400→400), vulnérabilité restaurée à la fin. Distance à894u = montage FireballSpell, exactement2 projectiles, zéro AOE. Preuves : `Saved/close_routing_final_probe.json`, `Saved/distance_routing_final_probe.json`. `BP_Boss` compile `BS_UP_TO_DATE`.
+
+## 30/09/2026 — AOE Revelation recentrée sur Khaimera
+- Correction sans toucher au reste du pattern : les 3 zones de `CastFlameLine` ne calculent plus leur direction depuis la position du joueur. Elles apparaissent désormais autour du boss, sur son axe local droite/gauche : -260u, centre, +260u.
+- Validation PIE avec joueur placé volontairement en diagonale à255u : zones mesurées à `(boss Y-260)`, centre exact du boss et `(boss Y+260)` ; distances au boss 260/0/260, donc placement indépendant de la position du joueur. Preuve : `Saved/boss_centered_aoe_probe.json`. `BP_Boss` compile `BS_UP_TO_DATE`.
