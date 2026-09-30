@@ -1854,3 +1854,10 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - `BPC_Stat.ApplyDamage` verifie maintenant le `CombatRef` du proprietaire : si `bIsDodging=true`, le coup est ignore avant toute perte de PV, hit-react, camera shake ou interruption. Les ennemis sans ce composant suivent le chemin de degats normal.
 - La fenetre correspond exactement a l'etat d'esquive deja gere par `BPC_Combat` (`DodgeDuration`, actuellement0,35s) ; aucune nouvelle minuterie concurrente.
 - Test PIE cible : attaque999 pendant `Dodge` -> joueur vivant, vitesse500/MOVE_WALKING ; meme attaque apres la fin -> vitesse0/MOVE_NONE et `AM_DKM_Death`. Blueprint compile/sauvegarde `BS_UP_TO_DATE`. Backup : `Saved/DodgeIFramesBackup_20260930`.
+
+## 30/09/2026 — separation magie distante / anti-collage
+- Correction du pattern trop charge : un tir lointain ne declenche plus automatiquement les3 AOE. `BeginFireCast` memorise une seule `FireAimLocation`; le projectile libere1,25s plus tard conserve cette direction, meme si le joueur se deplace ensuite.
+- `AS_LevitatingMagicStrike` a ete retargetee proprement du Mannequin vers Khaimera avec les nouveaux rigs `/Game/Enemies/Khaimera/Retarget/*`, puis utilisee par `AM_Khaimera_LevitatingMagicStrike`. Verification visuelle PIE P2 : Khaimera levite, membres coherents, haches au sol.
+- Charge lisible : `NS_Magma_Shot_Owner_Cast_Spell` est attache aux deux mains pendant l'incantation. La liberation est pilotee par timer (notify retire de la sequence retargetee pour eviter un double tir).
+- L'ancien enchainement de3 zones `CastFlameLine` devient uniquement une punition anti-collage en P2 : joueur a <=325u pendant8s, puis remise a zero ; sortir de la zone remet le compteur a zero. Test PIE : aucune AOE apres un cast distant ; apparition de l'AOE apres maintien proche. Capture de la pose/charge : `Saved/VibeUE/Captures/capture-game-20260930-125118.png`.
+- `BP_Boss` compile `BS_UP_TO_DATE`; nouveaux blocs commentes et ranges, zero chevauchement / zero fil exec arriere. Backup : `Saved/MagicPatternBackup_20260930`.
