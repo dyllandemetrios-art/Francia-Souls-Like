@@ -1849,3 +1849,8 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - P2 feu : nouveau `/Game/Enemies/Khaimera/BP_FlameLineAOE`, avertissement `NS_Gelmir_Fury`, impact `NS_Gelmir_Wizard_Impact`, rayon210/15degats. Chaque tir appelle `BP_Boss.CastFlameLine`, qui place3 zones a260/500/740u vers le joueur, espacees de0,32s. `AS_LevitatingMagicStrike` n'a pas ete utilise car il depend du squelette Mannequin et aucun retargeter compatible Khaimera n'existe.
 - Validation PIE : ligne de trois impacts clairement visible et mort joueur obtenue au contact ; HUD mort fonctionnel. `BP_Boss`, `BP_FlameLineAOE`, `BP_Fireball` et `BPC_Stat` relus `BS_UP_TO_DATE`. Capture `Saved/VibeUE/Captures/capture-game-20260930-115022.png`. Backups `Saved/CombatVFXAOEBackup_20260930`; scripts one-shot de cette passe sous `Scripts/`, ne pas relancer.
 - Menu : aucun autre WidgetBlueprint de menu n'est present dans le projet ; `UltimateUIMenusSFX` est un pack audio, pas un menu visuel. Le menu fonctionnel actuel reste donc en place en attendant une reference d'asset precise.
+
+## 30/09/2026 — invulnerabilite d'esquive
+- `BPC_Stat.ApplyDamage` verifie maintenant le `CombatRef` du proprietaire : si `bIsDodging=true`, le coup est ignore avant toute perte de PV, hit-react, camera shake ou interruption. Les ennemis sans ce composant suivent le chemin de degats normal.
+- La fenetre correspond exactement a l'etat d'esquive deja gere par `BPC_Combat` (`DodgeDuration`, actuellement0,35s) ; aucune nouvelle minuterie concurrente.
+- Test PIE cible : attaque999 pendant `Dodge` -> joueur vivant, vitesse500/MOVE_WALKING ; meme attaque apres la fin -> vitesse0/MOVE_NONE et `AM_DKM_Death`. Blueprint compile/sauvegarde `BS_UP_TO_DATE`. Backup : `Saved/DodgeIFramesBackup_20260930`.
