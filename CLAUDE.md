@@ -1553,3 +1553,291 @@ Composant sur le PARENT `BP_ThirdPersonCharacter` (toujours le même piège : co
   il faudra un repro précis** (une vidéo, ou au minimum : est-ce que la manette/clavier répond du
   tout, est-ce que c'est le jeu entier qui freeze ou juste le perso qui ne bouge plus alors que le
   reste continue) — je ne peux pas deviner plus loin sans ça.
+
+## Fait — 31/08 (12e passe) : map Necropolis + retour caméra simple
+- [x] **Checkpoint git créé** (commit `729f22d`) avant tout changement de map — dépôt existant avec
+  remote GitHub (`dyllandemetrios-art/Francia-Souls-Like`), historique antérieur retrouvé
+  mentionnant une tentative déjà faite sur `RuinedCrypt_01_P` (commit `633d95a`, "pointe sur
+  BP_ThirdPersonGameMode"). `git add -A` sur ce repo (nombreux gros assets binaires, pack
+  Necropolis inclus) **prend plusieurs minutes** — a timeout à 2 puis 5 min avant de finir en
+  arrière-plan ; ne pas s'inquiéter si le shell semble bloqué, vérifier `git status --short` plus
+  tard plutôt que de tuer le process (un `.git/index.lock` orphelin peut rester si on tue en plein
+  milieu — supprimable sans risque si aucun `git.exe` n'apparaît dans `tasklist`).
+- [x] **Map basculée sur `/Game/Necropolis/Levels/Demo_Necropolis`** (pack déjà présent dans le
+  projet — cryptes, chapelles, tours, ponts, variantes d'éclairage Jour/Nuit/Lune de sang/Terres
+  maudites). `World Settings.GameModeOverride` changé de `BP_FirstPersonGameMode` (défaut du pack,
+  démo à la première personne) → **`BP_ThirdPersonGameMode`** (celui du projet, `DefaultPawnClass
+  = BP_DarkKnight_Alert`) — donc le Chevalier Noir spawn directement jouable en troisième personne
+  sur cette map, sans rien recréer. 1 `PlayerStart` déjà présent dans le niveau
+  (`-10645,-5815,332`). **Pas de `NavMeshBoundsVolume`** sur cette map — à ajouter quand on voudra
+  y remettre les ennemis/le boss (jamais fait cette passe, portée limitée au perso jouable comme
+  demandé : "faut simplement passer le personnage a third person avec le chevalier").
+  **Piège rencontré** : premier lancement PIE sur cette map → `gameThreadStallSeconds` monte à
+  plus de 1000s (17+ min), même `execute_python_code("print(...)")` timeout sur des appels
+  triviaux — confirmé par l'utilisateur que c'était une **vraie popup modale** qui attendait un
+  clic (pas un hang), débloqué en un clic manuel. Le 2e lancement (après mes changements de caméra
+  suivants) a refait le même coup, ~5 min de stall — semble systématique sur cette map précise
+  (peut-être compilation shaders/build lighting Lumen au premier PIE de la session sur cette
+  world), pas la peine de paniquer, laisser tourner et vérifier `Saved/VibeUE/Signals/editor-<pid>-
+  health.json` plutôt que de spammer des appels.
+- [x] **🔴 Caméra "qui donne mal à la tête" — retour à un montage standard/basique**, demande
+  explicite après avoir testé le montage `bInheritPitch=False` + `FollowCamera.
+  bUsePawnControlRotation=True` de la 7e passe (censé garder la caméra à hauteur fixe pendant le
+  lock). Ce montage à deux voies de rotation séparées (le bras ET la caméra appliquant chacun leur
+  propre rotation) est probablement ce qui donnait la gêne — un léger désync perceptif entre le
+  calcul de position (piloté par le bras) et le calcul d'orientation (piloté indépendamment par la
+  caméra). **Revert complet vers le montage stock du template ThirdPerson** :
+  `CameraBoom.bInheritPitch = True` (redevient standard — tout le bras suit le pitch, comme
+  n'importe quel jeu à la troisième personne classique) + `FollowCamera.bUsePawnControlRotation =
+  False` (la caméra se contente d'hériter de la rotation du bras via l'attache, plus de calcul
+  indépendant). **Sûr maintenant que le Target Lock est totalement supprimé** (10e passe) : c'est
+  le lock qui provoquait les sauts de pitch brutaux (`FindLookAtRotation` recalculé chaque frame
+  vers une cible) responsables de la contre-plongée d'origine — un mouvement de souris normal,
+  progressif, ne recrée pas ce problème avec le montage standard.
+  `ViewPitchMin`/`ViewPitchMax` (sur `PlayerCameraManager`, posés en 9e passe à 0/0 pour bloquer
+  tout pitch) remontés à **-60/+45** (une plage confortable et classique, pas un blocage total).
+  `bDoCollisionTest=True` sur le bras **conservé tel quel** (fix anti-clipping-dans-les-murs de la
+  8e passe, sans rapport avec ce souci de confort — à ne pas re-désactiver).
+  **Validé en PIE** : pitch répond normalement à la souris (testé jusqu'à +45°, clampé pile à la
+  valeur voulue), la caméra swing normalement en hauteur/avant quand on regarde vers le haut
+  (comportement standard attendu d'un SpringArm qui hérite le pitch — ce n'est plus un bug
+  maintenant que rien ne force de sauts brusques). Capture d'écran : scène nocturne sombre et
+  atmosphérique (forêt, pierres, lumières lointaines) — assombrissement dû à l'éclairage Nuit de la
+  map elle-même (warning Lumen sur l'exposition en jeu, `r.EyeAdaptation.CachedLightingPreExposure`
+  à ajuster potentiellement plus tard si demandé), pas un souci de caméra.
+
+## 26/09/2026 — reprise prototype : état réel et premiers tests
+- État réel supérieur au journal : Lvl_ThirdPerson contient BP_Boss + navigation ; lock et phases déjà implémentés dans les assets modifiés avant cette reprise. Aucun ancien thread consulté.
+- Test PIE instrumenté : lock/acquisition/toggle/strafe/unlock mort boss réussis ; coups joueur 600→0 PV, phases 1→2→3, montages boss 01/02/03 observés. Joueur invulnérable uniquement pour ce test isolé, aucune sauvegarde de cette propriété runtime.
+- Mort joueur par vraies attaques boss confirmée sans invulnérabilité. Correctifs : guards bIsDead sur attaque/dodge/lock et Tick lock du joueur ; OnHitStunEnd ne restaure plus un mort ; DisableMovement à la mort ; mort joueur maintenue avec EnableAutoBlendOut=false (montage et capture native confirmés).
+- Capture VibeUE game/window échoue (2 essais), alternative computer-use native opérationnelle. Capture révèle Death_A Khaimera finissant en pose aérienne : transition ragdoll en cours de validation, ne pas déclarer résolu encore.
+- Probes reproductibles : Scripts/prototype_probe.py, résultats Saved/prototype_*.json. Sauvegarde préalable des assets concernés dans Saved/PrototypeBackup_20260926. Scripts de mutation ponctuels : ne pas les rejouer aveuglément.
+
+## 26/09/2026 — mort et HUD minimal de démonstration
+- Mort joueur retestée : 100→60→20→0 PV par Khaimera, montage AM_DKM_Death reste actif, personnage au sol, vitesse 0, lock coupé, inputs attaque/dodge sans effet après mort.
+- Mort Khaimera : Death_A termine avec pelvis encore haut ; essai de maintien du montage ne corrige pas la pose. Essai ragdoll (Khaimera_Extents) projette le corps à plusieurs mètres. Pas de nouvelle recherche physique : ragdoll retiré. Choix limité prototype : OnDeath détache l'IA, attend 1 seconde, masque le boss et désactive sa collision. Sa référence morte persiste pour HUD/victoire et unlock.
+- WBP_HUD complété : BossBar bas d'écran, BossLabel indiquant PHASE 1/2/3, EncounterResult pour VICTOIRE / VOUS ÊTES MORT. Capture PIE valide la position de la barre et du titre ; validations des changements dynamiques en cours.
+- Phase 3 condition strictement <30% (au lieu de <=30%). API graph : cast demande target_class ; SelectString appartient à KismetMathLibrary ; comparaison float moderne via type comparison (Double), pas Less_FloatFloat.
+
+## 26/09/2026 — timers après mort et esquive validés
+- Test sans invulnérabilité atteint phase 3 puis mort joueur : timer de combo encore actif remettait MaxWalkSpeed=500 et interrompait AM_DKM_Death. Corrigé dans BPC_Combat : OnStepTimerElapsed / OnDodgeFinished consultent BPC_Stat.bIsDead avant toute restauration ou relance ; si mort, nettoient uniquement bIsAttacking/bIsDodging/bComboQueued. EndHitStop reste actif pour restaurer le temps global.
+- Test de régression PIE déterministe (mort infligée pendant un combo bufferisé) : AM_DKM_Death reste actif à t=12s, vitesse 0, lock false, flags combat false. HUD affiche VOUS ÊTES MORT.
+- Esquive latérale réelle via IA_Move + IA_Dodge : Dodge_R_Montage, bIsDodging true puis false, stamina 100→82→100 avant attaque suivante. Combo ensuite observé sur AM_DKM_Attack_03, dépenses 12 par input selon réglages existants.
+
+## 26/09/2026 — validation finale des seuils et de la victoire
+- Parcours PIE par inputs Enhanced Input : spawn → lock → attaques réelles → phase 2 (350 PV, t≈16,22s) → phase 3 (175 PV, t≈29,03s) → boss mort (t≈40,56s). Test victoire isolé avec can_be_damaged=false uniquement sur l'instance joueur ; dégâts infligés au boss issus des montages/traces, pas de réduction artificielle de ses PV dans ce parcours.
+- Victoire : BossBar=0, EncounterResult=VICTOIRE, lock=false, boss hidden=true/collision=false/controller=None, vitesse joueur=500, GlobalTimeDilation=1.0. HUD phase 2 et barre vérifiés par capture native ; textes de fin vérifiés sur les widgets runtime (fenêtre ensuite minimisée).
+- Test séparé des frontières par ApplyDamage : 600→360 PV = phase 2 ; 180 PV reste phase 2 ; 179 PV = phase 3 ; 0 PV = mort. Après destruction runtime du boss, IA_Lock reste false/LockedTarget=None sans erreur.
+- Compilation finale réussie et sauvegarde de BPC_Stat, BPC_Combat, BP_DarkKnight_Alert, BP_Boss et WBP_HUD. Défaut persistant joueur can_be_damaged=True, bIsLocked=False ; boss Phase=1. PIE arrêté proprement. Aucune erreur Blueprint runtime / Accessed None relevée dans les logs des derniers tests.
+- Les scripts de mutation ponctuels ont été rangés dans Saved/PrototypeBackup_20260926 (ne pas rejouer). Seul Scripts/prototype_probe.py reste comme outil de test ; modes lock, combat (invulnérabilité temporaire), final_combat (sans protection), mortality, dodge, boundaries. Exécuter avec PIE arrêté via Python Unreal : probe_mode='mortality' puis exec(open(<chemin du script>, encoding='utf-8').read()). Résultats locaux ignorés par Git : Saved/prototype_*.json.
+
+# HANDOFF FINAL — PROTOTYPE
+
+État au 26/09/2026 : périmètre minimal implémenté, sauvegardé ; validation PIE effectuée avec les limites ci-dessous. Aucun ancien thread nécessaire. Les informations de cette section prévalent sur l'historique.
+
+## Lancer la démo
+- Map : `/Game/ThirdPerson/Lvl_ThirdPerson` (déjà EditorStartupMap/GameDefaultMap), BP_Boss placé, navigation présente. Necropolis non utilisée pour cette validation.
+- ZQSD/flèches : déplacement ; souris : caméra ; clic gauche : combo ; **Espace : esquive** ; **clic molette : lock toggle**. Manette mappée : sticks déplacement/caméra, FaceButton_Right attaque, FaceButton_Bottom esquive, RightThumbstick lock. Ne pas utiliser l'ancien tableau Shift/LB d'AGENTS.md comme état actuel.
+- Pour recommencer la démo : arrêter/rejouer le PIE. Aucun menu ni système de respawn ajouté.
+
+## Systèmes fonctionnels
+- Dark Knight, locomotion Alert, combo, dégâts par notifies/traces, hit-react, esquive directionnelle animée, endurance et régénération.
+- Lock unique Khaimera à portée 2500 : acquisition, toggle, orientation interpolée (pitch -12°), strafe, unlock si cible morte/invalide/hors portée ou joueur mort. Input sans cible testé sans erreur.
+- Khaimera : perception/poursuite/attaque via IA/BT existants, dégâts joueur↔boss, hit-react, santé 600.
+- Trois phases sur le même boss/BT : phase 1 (>60%) rate 1.0 / recovery .8 / speed 420 ; phase 2 (60–30%) 1.15 / .45 / 520 ; phase 3 (<30%) 1.35 / .15 / 620. Pattern aléatoire parmi 1, puis 2, puis 3 montages ; VFX existant aux transitions. Frontières 360/180/179 PV testées.
+- HUD joueur conservé ; ajout barre boss bas d'écran, titre avec phase et résultat VICTOIRE / VOUS ÊTES MORT.
+- Mort joueur : montage maintenu, mouvement désactivé, actions bloquées, lock coupé. Timers combo/dodge et fin de hit-stun ne réactivent plus un mort.
+- Mort boss : arrêt IA, unlock, animation puis masquage et collision désactivée après 1 seconde. Référence morte gardée pour HUD résultat.
+
+## Tests PIE réussis
+- Lock/acquisition/toggle/strafe/unlock à mort et tentative sans cible.
+- Boss détecte et rejoint le joueur ; attaques et dégâts réels 100→60→20→0 ; il cesse d'attaquer le joueur mort.
+- Attaques du joueur font 600→0 au boss, phases 1→2→3, barre cohérente avec HP, montages boss 01/02/03 observés.
+- Esquive droite : Dodge_R_Montage, état terminé correctement, stamina 100→82→100. Combo et consommation d'endurance observés.
+- Mort déclenchée pendant combo bufferisé : pose de mort encore active à 12s, vitesse 0, flags combat nettoyés. Régression confirmée également lors d'une mort naturelle en combat.
+- Victoire : texte runtime, barre vide, boss masqué/non collidable, joueur mobile, temps global normal ; aucune erreur runtime relevée sur les derniers parcours. Cinq Blueprints modifiés compilent proprement.
+
+## Limites / bugs connus / non vérifié
+- **Victoire automatisée validée avec invulnérabilité temporaire du joueur**, absente des assets sauvegardés. Deux bots sans protection ont perdu (phases 3 puis 2) : victoire d'une partie humaine sans aide et équilibrage de difficulté NON validés. Mort naturelle, dégâts dans les deux sens et phases sont vérifiés séparément.
+- Death_A Khaimera finit en pose aérienne ; Khaimera_Extents en ragdoll a projeté le corps. Tentative physique abandonnée, aucun ragdoll conservé : disparition simple retenue pour ce prototype.
+- Captures VibeUE game/window indisponibles ; captures natives ont montré HUD, combat, phase 2 et joueur mort. Texte final victoire/défaite vérifié numériquement sur widgets, pas de capture finale conservée.
+- Pas de test manette physique, de packaging, de Necropolis, ni de session prolongée. Caméra/boss géant peuvent cadrer serré au contact ; pas de passe de polish ajoutée.
+
+## Assets principaux
+- `/Game/Characters/Dark_Knight/Dark_Knight_Male/Blueprints/BP_DarkKnight_Alert`, `BPC_Combat`, `BPC_Stat`.
+- `/Game/AI/BP_Boss`, `/Game/AI/BP_AI_Enemy`, `/Game/AI/BT_Enemy`, `/Game/AI/Task_Attack`, `/Game/AI/Tasks/Task_ChaseTarget`, `Task_Strafe`.
+- `/Game/Enemies/Khaimera/BPC_Combat_Khaimera`, `BPC_Stat_Khaimera`, `ABP_Khaimera`, `Montages/AM_Khaimera_Attack_01/02/03`, `AM_Khaimera_Death`.
+- `/Game/UI/WBP_HUD`, `/Game/Input/IMC_Default`, `/Game/Input/Actions/IA_Lock` ; `AM_DKM_Death` sous les montages du Dark Knight.
+- Dépôt déjà modifié avant cette reprise : ces changements antérieurs ont été préservés. Aucun commit/push créé. STOP au périmètre prototype.
+
+## Passe finale prototype (26/09/2026) — Target Lock + Khaimera 3 phases
+Map de démo : **`Lvl_ThirdPerson`**. Khaimera (`BP_Boss`) seul, déplacé en (1200,0,180) yaw 180 (l'ancien
+emplacement (800,-900,400) était injoignable : chemin nav partiel). Les 2 `BP_Enemy` retirés du NIVEAU (Blueprint intact).
+
+### Bugs corrigés (tous testés en PIE)
+- [x] `BP_Boss.AttackMontage1` = `AM_Morigesh_Attack_01` (mauvais squelette) → Khaimera n'attaquait pas visuellement.
+  Remplacé par les 3 `AM_Khaimera_Attack_0x`.
+- [x] **🔴 `BPC_Stat.ApplyDamage` : mort déclenchée à tort (réévaluation de nœud pur).** Le test `<=0` lisait la sortie
+  du `FClamp(CurrentHealth-PendingDamage)` PUR, réévalué APRÈS le `Set CurrentHealth` → perte comptée 2×. Ex : 60 PV,
+  coup de 40 → PV=20 mais `bIsDead=True`. Touchait joueur ET boss. **Fix** : `LessEqual.A` ← `Get CurrentHealth` frais.
+  Testé : 100→60→20 (vivant)→0 (mort). **LEÇON** : un nœud pur consommé avant ET après un `Set` de sa propre entrée
+  est recalculé → relire la variable après le Set.
+- [x] `Task_ChaseTarget` `AcceptanceRadius` 220→**110** : le boss frappait depuis ~250u et ratait ; frappe maintenant à ~135u.
+
+### Boss 3 phases (`BP_Boss`) — [x] testé en PIE
+- `ReceiveAnyDamage` → après `ApplyDamage` : si non mort, ratio≤0.3 && Phase<3 → P3 ; sinon ≤0.6 && Phase<2 → P2.
+  | Phase | PV | Attaques (tirage) | PlayRate | Pause après attaque | MaxWalkSpeed |
+  |---|---|---|---|---|---|
+  | 1 | 100→60 % | 01 | 1.0 | 0.8 s | 420 |
+  | 2 | 60→30 % | 01/02 | 1.15 | 0.45 s | 520 |
+  | 3 | <30 % | 01/02/03 | 1.35 | 0.15 s | 620 |
+  + P3 : `Task_Strafe` fait `FinishExecute(true)` direct si pion = `BP_Boss_C` && Phase≥3 (plus d'orbite).
+  + Transition : `NS_Dark_Mist` spawné sur le boss ; `StatComponent.SavedMaxWalkSpeedHit` aussi mis à jour (sinon la fin
+  du hit-stun restaure l'ancienne vitesse — vérifié : 520 conservé après stun).
+- `Attack01` : `AttackIndex = RandInt(0,Phase-1)` stocké en VARIABLE (évite le re-tirage du pur) → Branch → PlayAnimMontage
+  (`InPlayRate=AttackPlayRate`) → retourne `durée + AttackRecovery` (= délai entre attaques via le Delay de Task_Attack).
+- Mort : event lié `StatComponent.OnDeath` → `DetachFromControllerPendingDestroy` (IA coupée, testé : ctrl=None).
+- **Équilibrage démo** : PV boss 400, dégâts boss 20 (joueur meurt en 5 coups ; 16 coups d'épée à 25 pour tuer le boss).
+  Posés au **BeginPlay de BP_Boss** (`Set MaxHealth/CurrentHealth/AttackDamage` sur les composants) car le plugin
+  **bloque désormais toute modif CDO en Python** (`PYTHON_UNSAFE_CODE`) et ces variables ne sont pas éditables en instance.
+  → Pour retoucher ces chiffres : les 3 nœuds `Set` en fin de chaîne BeginPlay de `BP_Boss`.
+
+### Target Lock (`BP_DarkKnight_Alert`) — [x] testé en PIE
+- `IA_Lock` → **MiddleMouseButton** + **Gamepad_RightThumbstick**. Toggle. Acquisition `GetActorOfClass(BossClass)` +
+  IsValid + distance ≤ `LockRange` (2500).
+- Tick : unlock si cible invalide / `bIsDead` / hors portée ; sinon `RInterpTo(ControlRot → (pitch -12 fixe, yaw
+  FindLookAt), 8)` → `SetControlRotation`. Testé : yaw contrôleur = yaw vers boss au degré près, pitch -12, relâché
+  automatiquement à la mort du boss.
+
+### Validation finale PIE
+- [x] Spawn → lock → combat → P1→P2→P3 → mort du boss : phases observées (valeurs ci-dessus, AttackIndex 1 vu en P2),
+  boss couché (bassin sous les pieds), IA détachée, lock relâché, joueur vivant (40 PV), vitesse 500 restaurée,
+  déplacement ZQSD OK après victoire. Pas de crash/softlock.
+- [x] Spawn → combat → mort du joueur : 100→80→…→0, `AM_DKM_Death` maintenu, corps au sol, boss n'attaque plus le mort.
+- [x] Coups réels joueur→boss (`RequestAttack` → notify `AN_AttackDamage`) : 400→350 (2 coups), -25 chacun.
+- [~] Les dégâts de progression de phase ont été en partie injectés via `GameplayStatics.apply_damage` (instigateur =
+  joueur) : la latence MCP (5-10 s/appel) ne permet pas d'enchaîner 16 coups réels avant que le boss ne tue le joueur.
+
+### Pièges de session
+- **Mesures d'os/montage fausses si la fenêtre Unreal n'est pas visible** (anim non tickée hors rendu) : j'ai cru à
+  une anim de mort interrompue, c'était un artefact. Garder l'éditeur visible pendant les tests.
+- `capture_image` quand le PIE ne tick pas → échec Slate puis **crash éditeur** (ACCESS_VIOLATION). Éviter.
+- Modifs de niveau (acteurs externes) et `IMC_Default` : `EditorLoadingAndSavingUtils.save_dirty_packages(True,True)`,
+  sinon perdues au crash.
+- `inject_key(k,"down")` puis `"up"` dans le MÊME script = pas de tick entre les deux → comportement aléatoire ;
+  séparer en 2 appels.
+
+---
+
+# HANDOFF FINAL POUR CODEX
+**Objectif** : démo courte « combat Souls-like UE5 contre un boss à 3 phases ». Boucle : joueur → Target Lock Khaimera →
+combat → P1 → P2 → P3 → victoire ou mort. **Prototype considéré terminé, prêt pour revue.**
+
+**État de la boucle** : fonctionnelle en PIE sur `Lvl_ThirdPerson` (voir « Validation finale PIE » ci-dessus).
+
+**Systèmes / fichiers clés**
+- Joueur : `/Game/Characters/Dark_Knight/Dark_Knight_Male/Blueprints/BP_DarkKnight_Alert` (input, lock, HUD),
+  `BPC_Combat` (combo cumulatif, dodge, `DoAttackTrace`), `BPC_Stat` (PV, endurance, hit-react, mort, `OnDeath`).
+- Boss : `/Game/AI/BP_Boss` (phases, `Attack01`, équilibrage BeginPlay, barre de vie monde), composants
+  `/Game/Enemies/Khaimera/BPC_Combat_Khaimera`, `BPC_Stat_Khaimera`.
+- IA : `/Game/AI/BP_AI_Enemy` (PawnSensing → blackboard), `/Game/AI/BT_Enemy` (Chase → Attack → Strafe),
+  `/Game/AI/Task_Attack`, `/Game/AI/Tasks/Task_ChaseTarget`, `/Game/AI/Tasks/Task_Strafe`.
+- Input : `/Game/Input/IMC_Default` (Attaque clic G, Dodge Espace, Lock clic molette/R3, Interact E).
+
+**Changements de cette passe** : montages Khaimera, fix mort à tort (`BPC_Stat`), AcceptanceRadius 110, phases P1-P3,
+skip strafe en P3, IA coupée à la mort du boss, Target Lock recréé, IA_Lock remappé, boss repositionné, anciens
+ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
+
+**Bugs connus / non vérifiés**
+- [~] Le VFX de changement de phase (`NS_Dark_Mist`) n'a pas été vu visuellement (seulement le chemin d'exécution).
+- [~] Le lock s'est relâché une fois sans cause identifiée pendant un run où le joueur est mort ; non reproduit dans
+  les 2 runs suivants (lock tenu jusqu'à la mort du boss).
+- [~] Pendant le hit-stun, un changement de phase remet `MaxWalkSpeed` immédiatement (le boss peut bouger pendant
+  les 0,4 s de stun) — mineur.
+- [ ] Pas de partie jouée à la main de bout en bout (difficulté/ressenti à valider par un humain : esquive, timing).
+- `BPC_Stat` : tout coup sur un joueur mort est ignoré (guard `bIsDead`) ; pas d'écran de fin/restart (hors scope).
+
+## Revue finale Codex — 26/09/2026 (après le handoff ci-dessus)
+**Verdict : un softlock bloque encore la validation finale. Aucun asset corrigé pendant cette revue ; aucun commit.**
+- Parcours automatisé sans invulnérabilité et sans ApplyDamage injecté, avec équilibrage réel 400 PV / 20 dégâts : phases 1→2→3 puis VICTOIRE à t=33,713s ; joueur vivant à 20 PV. Cette fois la victoire entière provient des vrais inputs et notifies/traces. Rapport : Saved/review_final_20260926.json.
+- **[P1] Softlock de mouvement après combat/victoire.** À t=65,067s : joueur vivant, bIsAttacking=false, bIsDodging=false, MOVE_WALKING, MaxWalkSpeed=0, MaxAcceleration=0 ; SavedMaxWalkSpeed/SavedMaxAcceleration de BPC_Combat valent aussi 0. BPC_Stat conserve pourtant SavedMaxWalkSpeedHit=500 / SavedMaxAccelHit=1600. IA_Move injectée ensuite : position strictement inchangée (673.862881,279.816625,92.150000), vélocité nulle. BPC_Combat capture sans garde les valeurs courantes avant de geler le mouvement ; une attaque démarrée pendant un hit-stun peut mémoriser les zéros, puis les restaurer définitivement. Nœuds concernés EventGraph : E0F3FCA34A50462B8AF281ABD1098754 (Set SavedMaxWalkSpeed), 42C0339145A8E90455BBBF96A1E91CB5 (Set SavedMaxAcceleration), restauration 1FD117F94EA18DE2D1ECD6A4C1624859 / 500EA3E6419BAE34264A88B6AA922E0C. Attendu : retrouver 500/1600 après fin des états combat/hit-stun. Corriger la coordination de sauvegarde/restauration, pas seulement la victoire.
+- **[P2] Endurance dépensée pour une esquive refusée.** BP_DarkKnight_Alert appelle ConsumeDodgeStamina AVANT BPC_Combat.Dodge ; ce dernier rejette l'action pendant une attaque. Repro PIE : RequestAttack, puis IA_Dodge alors que bIsAttacking=true ; stamina 100→82, aucune esquive. Nœud consommation 226C26384CD7B0F9292F0091A94720D2 dans BP_DarkKnight_Alert ; garde Dodge 356516D246A105E3F3397D925F26EA99 dans BPC_Combat. Dépenser seulement lorsqu'une esquive est acceptée.
+- Contrôle doc : WBP_HUD contient bien BossBar/BossLabel/EncounterResult, résultat VICTOIRE lu pendant ce run malgré la dernière mention « pas d'écran de fin ». Pas de restart ajouté. BPC_Combat est signalé UpToDateWithWarnings ; aucun Accessed None/erreur Blueprint runtime relevé dans les derniers logs examinés.
+- PIE arrêté après les deux reproductions. Partie humaine/ressenti et VFX restent non vérifiés par cette revue.
+
+## 26/09/2026 — correction du flux combat (en cours de validation)
+- Aucun personnage/animation remplacé : les défauts identifiés sont des conflits de logique. BPC_Stat possède désormais RefreshMovement, bIsHitStunned et bAttackMovementLocked. SavedMaxWalkSpeedHit/SavedMaxAccelHit sont la référence de locomotion capturée une seule fois au BeginPlay, plus une sauvegarde par coup. Seul RefreshMovement restaure le mouvement selon les blocages actifs ; la mort garde DisableMovement.
+- BPC_Combat.CancelCombat, appelé avant hit-react/mort, coupe les timers de combo/dodge, vide les buffers, restaure la friction et libère son verrou de mouvement. Les dégâts des notifies sortantes sont ignorés pendant stun/dodge/mort.
+- Endurance déplacée de BP_DarkKnight_Alert vers les points d'acceptation de BPC_Combat : un coût par coup engagé / esquive réellement lancée, aucun coût supplémentaire pour spammer un buffer ou une action refusée. Un seul coup peut être bufferisé ; Dodge pendant attaque est prioritaire à la fin du coup ; attaque pendant dodge peut attendre sa fin.
+- Phase boss : modifie la référence de vitesse puis appelle RefreshMovement, sans libérer prématurément un hit-stun. Test initial : 520 après stun, 0 pendant.
+- Ancienne restriction découverte : Dodge imposait LastMovementInputVector >0.1 ; supprimée pour permettre esquive au repos et esquive bufferisée après relâchement de direction. Animation F existante comme repli, à vérifier en PIE.
+- Sauvegardes préalables : Saved/CombatFlowBackup_20260926. Migration ponctuelle Scripts/refine_combat_flow.py (stages déjà exécutés, NE PAS relancer). Tests ciblés Scripts/combat_flow_validation.py, sortie Saved/combat_flow_validation.json. Première passe : 10/11 succès ; seul dodge au repos bloqué, cause identifiée ci-dessus, seconde passe en cours.
+
+## 26/09/2026 — résultat des corrections de fluidité
+- Les **11 tests ciblés** de Scripts/combat_flow_validation.py passent : références composants, esquive bufferisée et exécutée, coût uniquement au lancement, hit-react annulant les actions, demandes refusées sans coût, restauration après coups répétés, buffer combo non refacturé au spam, refus si endurance vide, régénération, phase respectant le stun puis vitesse 520, mort définitive sans timers parasites. Rapport Saved/combat_flow_validation.json.
+- Repli d'esquive à l'arrêt vérifié : le buffer ne dépend plus du maintien d'une direction. BPC_Stat et BPC_Combat coordonnent maintenant les verrous de mouvement ; aucune animation/personnage supprimé ou remplacé.
+- Parcours sans protection avec nouveaux états : P1→P2→P3, boss restant à 50 PV, puis mort joueur. Avant mort, personnage hors attaque/stun à MaxWalkSpeed=500/MaxAcceleration=1600 ; après mort, 0/0 avec AM_DKM_Death, flags nettoyés. Aucune erreur Blueprint runtime/Accessed None dans les logs examinés. **Nouvelle victoire complète et déplacement après victoire pas encore retestés sur cette version**, contrairement à la revue de la version précédente.
+- L'utilisateur a interrompu Computer Use par Échap pendant le contrôle visuel. Pilotage visuel arrêté ; callback du test automatique désinscrit pour ne plus injecter d'inputs. Aucun arrêt/restart PIE imposé après cette interruption. Contrôle humain du ressenti restant.
+- Migration de logique : Scripts/refine_combat_flow.py, stages foundation/stat/combat/player_phase DÉJÀ appliqués, ne pas relancer. Mapping des nouveaux nœuds et sauvegardes avant modification : Saved/CombatFlowBackup_20260926. Le stage combat a nécessité le branchement manuel d'un K2Node_Self existant sur les 2 ClearTimer (build_graph refuse la clé SPAWN, utilise NODE K2Node_Self) ; les 97 connexions ont été auditées ensuite. Le guard Dodge a ensuite été réduit à !bIsAttacking && !bIsDodging, sans restriction d'input de déplacement.
+- Réutilisation : ajouter BPC_Stat et BPC_Combat (ou leurs sous-classes) à un Character ; configurer StatComponentClass / CombatComponentClass, montages compatibles et coûts. Les inputs appellent seulement RequestAttack / Dodge. Les dégâts suivent PendingDamage puis ApplyDamage. Pour changer la vitesse de base, modifier SavedMaxWalkSpeedHit / SavedMaxAccelHit puis appeler RefreshMovement ; ne plus sauvegarder une vitesse temporairement gelée. Les notifies et durées de fenêtres doivent correspondre aux animations du personnage. Aucune dépendance du nouveau flux aux classes du joueur ou du boss.
+- Aucun commit effectué. Le softlock et la consommation sur action refusée sont corrigés et couverts par tests ciblés ; validation finale humaine et nouveau parcours victoire à terminer après interruption.
+
+## 29/09/2026 — retour de test humain et reprise du déroulé
+- Joueur : esquives utilisables, mais phases peu perceptibles ; particule jaune incomprise ; mannequin inactif à côté du boss. La V1 n'est pas validée pour diffusion.
+- Demande actuelle : retrouver un premier ennemi en attente, puis déclencher le combat à l'approche du joueur, conformément au CDC. Docs/CombatFlow_Architecture.md §15 et §17.6 prévoient des déclenchements par position et état des ennemis ; leur ancien scénario complet ne doit pas être réintroduit sans distinguer la portée actuelle.
+- Documentation : précédent handoff confirme retrait des anciens ennemis ; ancien CDC signale Manny résiduel à (360,-1080). Ce sont des pistes, pas une identification de la scène actuelle. Particule jaune non identifiée ; ne pas supposer qu'il s'agit du VFX de phase.
+- Inspection réelle bloquée : aucun processus UnrealEditor détecté, endpoint local 127.0.0.1:8000/mcp refuse la connexion. Ouverture du projet sur la carte testée demandée à l'utilisateur. Aucun asset modifié. À reprendre : inventaire ciblé de la scène, acquisition IA/déclenchement, provenance du VFX, lisibilité des phases, puis PIE approche→combat et victoire/mort.
+
+## 29/09/2026 — rencontre rétablie et validée en PIE
+- Connexion VibeUE rétablie via HTTP MCP local. État réel : Lvl_ThirdPerson contenait BP_Boss (1200,0,180) et Manny résiduel (360,-1080,90), aucun BP_Enemy. Sauvegarde avant modification : Saved/EncounterBackup_20260929 (assets + map + acteurs externes).
+- Carte : réintroduction de BP_Enemy/Morigesh à (1200,0,100), yaw180 ; retrait du boss préplacé et du mannequin inactif. Le gardien attend sans contrôleur, se réveille automatiquement à <=600u, joue son réveil puis lance son IA. Interaction E désormais inutile. Sa mort coupe son IA, puis fait apparaître Khaimera après 5s via la chaîne existante. Un gardien puis un boss ; aucun rétablissement implicite du vieux scénario à trois ennemis/cinématiques.
+- Lock : cible Khaimera lorsqu'il existe, sinon le gardien ; cast Actor nécessaire après SelectObject. HUD : barre du gardien et consigne d'approche, annonce d'arrivée du boss, puis acquisition différée du boss et barre/phases existantes. La mort joueur s'affiche également avant apparition du boss. Correction d'une erreur initiale Accessed None : recherche HUD déclenchée après résolution du Stat joueur, plus au Construct avant cette résolution.
+- Phases : annonce HUD 3,5s « PHASE 2 : KHAIMERA ACCELERE » / « PHASE 3 : FURIE - ASSAUTS ENCHAINES », conservant les variations d'attaques/cadence/déplacement existantes. Anciens SpawnSystemAtLocation de transition et apparition court-circuités. Particule jaune rapportée NON identifiée formellement ; aucun Niagara actif trouvé au moment des lectures runtime. Ne pas affirmer son origine ou sa résolution certaine.
+- Tests PIE : départ gardien dormant, contrôleur absent, boss absent, HUD consigne ; inputs réels approche→réveil→combat→mort gardien→spawn boss→P1/P2/P3→victoire, d'abord protégé puis joueur vulnérable. Seconde passe victoire avec 60 PV, déplacement après victoire >800u, vitesse500, lock relâché. Messages P2/P3 observés dans le widget durant les combats. Rapports Saved/encounter_flow_protected_20260929.json et encounter_flow_vulnerable_20260929.json ; ce dernier ne contient pas les PV joueur (60 lus séparément en PIE).
+- Test séparé sans attaque/protection : dégâts réels gardien→joueur→0PV, AM_DKM_Death maintenu, mouvement0, message VOUS ETES MORT ; confirmation visuelle. Rapport Saved/encounter_mortality_20260929.json. Aucune nouvelle erreur Blueprint runtime après correction du HUD dans les logs examinés.
+- Migration ponctuelle Scripts/restore_encounter_20260929.py : stages exécutés, NE PAS relancer. Réparations additionnelles déjà appliquées : cast Actor du lock, conversion String→Text du label gardien, déconnexion Construct→recherche boss, DetachFromControllerPendingDestroy du gardien. Mapping Saved/EncounterBackup_20260929/nodes.json. Script de test Scripts/encounter_flow_probe.py ; callbacks arrêtés, PIE arrêté, assets sauvegardés. Aucun commit.
+- Limites : équilibre/ressenti de la nouvelle séquence à rejouer par l'utilisateur ; particule jaune non reproduite ; les annonces de phase sont fonctionnelles mais pas de nouvelle chorégraphie/VFX. Les barres de santé monde historiques existent toujours en plus du HUD. Pas de nouvel environnement, narration, parade ni cinématique.
+
+## 30/09/2026 — phases visibles et lisibilite (validation en cours)
+- BP_Boss : P2 = transition protegee avec hurlement, chute des deux vraies haches (meshes extraits du squelette Khaimera), mains sans haches et montage Cast declenchant un projectile de feu par notify. P3 = retour des haches, melee acceleree. Aucun personnage remplace. Nouvelles ressources sous /Game/Enemies/Khaimera (Props, BP_Fireball, AN_ReleaseFireball, Montages).
+- Projectile : Niagara NS_Magma_Shot_Projectile existant, vitesse950, degats20, duree5s, ignore son lanceur. Test direct de cast : joueur perd20PV. Premier parcours protege : P1/P2/P3/victoire et haches cachees/physiques/restaurees verifies, mais zero tir autonome. Diagnostic : boss apparait dos au joueur et ne l'acquiert pas. Correction : spawn face joueur, acquisition explicite lors de degats recus, perception limitee au joueur ; distance approche650 en P2,110 en melee, strafe ignore en P2/P3. Nouveau parcours en cours : attaque melee autonome deja observee.
+- Rangement : 13 graphes (boss EventGraph/Attack01, combat/stat/joueur, gardien, controleur, HUD, trois tasks, projectile, notify) reorganises en blocs commentes ; connexions actives comparees a l'identique avant/apres. Aucun chevauchement ni execution retournee dans ces graphes. Code inaccessible retire. Rapports avant/apres : Saved/BlueprintReadability_20260930. Scripts/organize_blueprints.py. Validation visuelle et regression PIE restent a terminer.
+- Incident technique avant reprise : le spawner generique NODE K2Node_SpawnActorFromClass a provoque une assertion moteur. Ne jamais le reutiliser. Apres redemarrage manuel par utilisateur, create_node_by_key avec SPAWN K2Node_SpawnActorFromClass|Spawn Actor from Class puis set_node_pin_value Class=chemin GeneratedClass fonctionne. Aucun nouvel incident depuis. Scripts/visible_boss_phases.py : stages assets/foundation/transition/cast/attack/notify/range/aggro DEJA executes, ne pas relancer. Deux pins self bCanBeDamaged raccordes manuellement apres transition. Sauvegardes Saved/VisiblePhasesBackup_20260929.
+- Ne pas considerer les anciennes victoires comme preuve d'equilibrage du boss : acquisition IA etait defectueuse. Pas de commit. Travail en cours, pas de validation finale.
+
+## 30/09/2026 — validation des nouvelles phases
+- Parcours PIE protege, inputs reels : gardien -> Khaimera -> P2 (9 tirs autonomes observes pendant la pause de melee) -> P3 -> victoire ; haches masquees en P2, props physiques au sol, haches restaurees en P3. Rapport Saved/visible_phases_probe.json (345 echantillons,52s). Protection uniquement sur joueur pour observer les patterns.
+- Parcours PIE SANS protection ni degats injectes : P1/P2/P3, victoire t33,55s avec15PV, deplacement apres victoire jusqu'a1005u du boss, vitesse500 et lock=false. Rapport Saved/visible_phases_vulnerable_victory_20260930.json. Cela valide la boucle, pas un equilibrage exigeant : le bot gagne en attaquant sans esquiver.
+- Mort au feu : approche/combat proteges jusqu'a P2 puis protection retiree a619u, joueur immobile. Cinq projectiles autonomes,20PV chacun, mort0PV, AM_DKM_Death, vitesse0, lock=false, HUD VOUS ETES MORT. Rapport Saved/fire_mortality_20260930.json. Attention champ protected=true dans ce rapport provient du mode initial du harness ; can_be_damaged a bien ete remis true avant les tirs (confirme en PIE).
+- Robustesse P3 : branche CheckL.else -> ShowR ajoutee, afin qu'une hache gauche deja detruite n'empeche pas de restaurer la droite. Test runtime : destruction prop gauche en P2 puis degats pour franchir30%, Phase3 et deux bones visibles verifies. Aucun asset/test de placement altere par ces manipulations runtime.
+- Verification visuelle : gardien/arena, boss sans haches pendant incantation et haches au sol, presentation du graphe boss en blocs verifies. Guide humain Docs/Blueprint_Reading_Guide.md ajoute. Les getters partages traversent encore certains blocs ; il s'agit d'un rangement conservateur, pas d'un refactor de l'architecture. Aucune nouvelle erreur Blueprint runtime/Accessed None dans la fin des logs examines.
+
+# HANDOFF FINAL — PROTOTYPE
+
+- **Boucle fonctionnelle** : gardien en attente -> approche600u -> reveil et combat -> mort -> Khaimera apres5s -> lock, combo/endurance/esquive -> P1 haches, P2 haches au sol et feu, P3 retour des haches/melee acceleree -> victoire ou mort. Map /Game/ThirdPerson/Lvl_ThirdPerson.
+- **Tests PIE reussis** : parcours protege avec9tirs P2 ; victoire joueur vulnerable15PV ; mort par5projectiles ; absence de softlock apres victoire ; restauration des deux haches meme apres disparition d'un prop. Detail/rapports dans entree precedente. Ancienne suite combat ciblée du26/09 non relancee integralement apres rangement, mais toutes les connexions actives ont ete comparees avant/apres.
+- **Principaux assets** : BP_DarkKnight_Alert, BPC_Combat/BPC_Stat dans Dark_Knight_Male/Blueprints ; /Game/AI/BP_Enemy, BP_Boss, BP_AI_Enemy, BT_Enemy et tasks ; /Game/UI/WBP_HUD ; /Game/Enemies/Khaimera/BP_Fireball, AN_ReleaseFireball, Props et Montages. Guide de lecture : Docs/Blueprint_Reading_Guide.md.
+- **Limites connues** : pas de parade ajoutee, pas de nouvelle animation AMHE ; animations natives reutilisees. Retour des haches en mains pendant le hurlement, sans animation de ramassage au sol. Presentation de niveau toujours greybox ; anciennes barres monde en plus du HUD. Aucun restart/menu ajoute. Equilibrage et lisibilite ressentie de la nouvelle version restent a rejouer humainement. Particule jaune ancienne non identifiee formellement.
+- **Maintenance** : scripts de migration deja appliques, ne pas relancer. 13 graphes ranges/compiles/sauvegardes ; sauvegardes avant modification dans Saved/VisiblePhasesBackup_20260929 et rapports de rangement Saved/BlueprintReadability_20260930. Aucun commit. Ne pas modifier ABP_Unarmed, ni reinitialiser Mesh/AnimClass au BeginPlay. Ne pas utiliser le spawner generique NODE SpawnActor (assertion moteur) ; voir entree technique du30/09.
+- Verification visuelle finale supplementaire : projectile de feu orange nettement visible en vol, capture native sur PIE mis en pause apres0,2s de vie du projectile ; Khaimera sans haches et deux haches au sol dans le meme cadre. Callbacks de test arretes et PIE arrete/False confirme. Editeur laisse ouvert, assets sauvegardes.
+
+## 30/09/2026 — combo finisher et camera epaule
+- Recompense du combo joueur ajoutee sans nouvelle animation : apres un **troisieme impact reel** (`ComboIndex==2` apres `Apply Damage`), BPC_Combat cherche le BPC_Stat de la cible et appelle `ForceFinisherStagger`. Un coup dans le vide ne compte pas. L'event rejoue le `HitReactMontage` propre a chaque ennemi a vitesse0,72, bloque son mouvement et remplace le timer de recuperation par1,15s ; cible morte ignoree. Les montages existants compatibles sont `AM_Morigesh_HitReact` (1s) et `AM_Khaimera_HitReact` (0,867s).
+- Validation PIE ciblee Khaimera : troisieme trace a ComboIndex2, PV275, montage AM_Khaimera_HitReact, vitesse0 ; second contact natif du meme troisieme mouvement a PV250 reinitialise proprement le timer. Liberation mesuree1,15s apres le dernier impact, vitesse420 restauree. Rapport `Saved/combo_stagger_direct_probe_20260930.json`. Ce test a garde Khaimera a250PV, donc sans transition de phase pouvant masquer la reaction.
+- Camera TPS epaule corrigee dans `/Game/ThirdPerson/Blueprints/BP_ThirdPersonCharacter` (heritee par le Dark Knight) : SpringArm330, SocketOffset(0,68,48), CameraLagSpeed7, FOV82. Verification visuelle au spawn puis avec lock Khaimera actif : chevalier decale a gauche, cible conservee et rotation du lock fonctionnelle.
+- BPC_Stat/BPC_Combat re-ranges apres ajout : respectivement123/211 noeuds, zero chevauchement, zero fil exec arriere, connexions actives preservees. Guide `Docs/Blueprint_Reading_Guide.md` mis a jour. Backups binaires avant changement : `Saved/CombatPolishBackup_20260930`.
+- Incident non destructif pendant la migration : le pin classe direct de GetComponentByClass a ete refuse, puis repare avec `StatComponentClass`; une connexion exec Character->Play manquante a ete detectee par test runtime et ajoutee. Les scripts sources ont ete corriges pour refleter l'etat final, mais sont des migrations ponctuelles **a ne pas relancer**. Aucun commit.
+
+## 30/09/2026 — assistance de combo et impacts camera
+- Retour humain : en bougeant la souris entre les attaques, la poussee lineaire faisait passer le chevalier a cote de Morigesh et rendait le stagger du3e coup difficile a percevoir. Correction : `BPC_Combat.AttackTarget` recoit `BP_DarkKnight_Alert.LockedTarget` a chaque `IA_Attack`; `FaceAttackTarget` realigne Actor + ControlRotation avant chaque `PlayStep` et juste avant `DoAttackTrace`, uniquement si cible valide a <=650u. Sans lock, LockedTarget=None et aucune assistance artificielle.
+- Test PIE Morigesh : lock acquis, camera volontairement tournee de95deg entre les pressions ; realignement final erreur yaw~0deg. Deux attaques reelles ont retire25PV chacune (75->50->25) alors que Morigesh s'etait rapproche/decale ; une trace confirmee supplementaire a egalement retire25. Le harness echantillonnait plus lentement que les montages lorsque l'editeur etait en arriere-plan, donc son JSON ne doit pas servir a mesurer leurs timings.
+- Feedback camera : reutilisation de `/Game/Variant_Combat/Blueprints/BP_CameraShake_Hit_Player` et `BP_CameraShake_Hit_Enemy` depuis `BPC_Stat.PlayDamageCameraFeedback`, apres chaque degat confirme. Echelle joueur touche0,75 (shake translationnel8, duree0,35s) ; ennemi touche0,45 (translationnel2, duree0,25s). Test runtime : PV joueur100->99 et Morigesh100->99, aucun runtime error. Le probe initial ne mesurait que la rotation, or ces assets ont amplitude rotation0 ; la verification de classe montre qu'ils sont exclusivement translationnels.
+- Graphes ralignes et recompiles : BPC_Stat134 noeuds/12blocs, BPC_Combat231/11, BP_DarkKnight86/7 ; zero chevauchement, zero fil exec arriere, connexions actives preservees. Backups `Saved/AttackAssistBackup_20260930` et `Saved/DamageFeedbackBackup_20260930`. Scripts one-shot deja appliques, ne pas relancer. Parcours complet apres ajout en cours de validation.
+- Validation finale de cette sous-passe : parcours automatise protege complet apres assistance/shakes, gardien -> Khaimera -> P1/P2/P3 -> victoire en55,44s ;4projectiles P2, boss0PV, haches visibles P3, joueur vitesse500 et a~1010u apres victoire. Rapport `Saved/visible_phases_probe.json` remplace par ce run. Aucun Blueprint Runtime Error/Accessed None dans les1200 dernieres lignes du log. PIE arrete. Prochaine sous-passe combat : patterns boss plus construits, zones persistantes/atterrissage feu, puis VFX sang/metal seulement si un emitter adapte est disponible ou cree ; l'unique asset sang confirme actuellement est un decal Necropolis, pas une giclure.
+
+## 30/09/2026 — suivi continu, berserk rouge et menu
+- Combo : `BPC_Combat.Event Tick` appelle `FaceAttackTarget` pendant tout `bIsAttacking`, en plus du realignement aux changements d'etape et a la trace. Le root motion du3e coup reste donc dirige vers la cible verrouillee meme si la souris est bougee pendant l'animation. Probe `Saved/continuous_combo_tracking_probe_20260930.json` : erreur yaw0 pendant l'attaque sous perturbation continue ; la logique est commune aux3 etapes.
+- Khaimera P3 : `ApplyBerserkLook` est appele au passage en phase3 et pousse les parametres materiau peau/peinture/glow/emissive vers un rouge sature. Verification PIE vivante a90/400PV : Phase=3, peau et haches rouge vif, HUD PHASE3. Capture `Saved/VibeUE/Captures/capture-game-20260930-102829.png`.
+- Menu `/Game/UI/WBP_MainMenu` : titre **THE LAST KNIGHT**, trois boutons. Le BeginPlay joueur affiche le menu, met la partie en pause et montre le curseur ; un choix applique la difficulte, retire le menu et reprend le jeu. Écuyer : gardien60PV/10degats, boss320/15. Chevalier :75/15 et400/20. Dernier Serment :105/21 et520/28. Selection Chevalier testee en PIE, pause/cursor leves et valeurs gardien75/15 confirmees ; Khaimera applique le choix a son spawn.
+- Regression : parcours protege menu ferme -> gardien -> Khaimera -> P1/P2/P3 -> victoire en55,44s,4 projectiles, boss0PV, vitesse joueur500. `visible_phases_probe.json`. Blueprints combat/joueur/gardien/boss/menu recompiles et sauvegardes clean ; aucune nouvelle erreur runtime.
+- Sauvegarde avant menu/difficulte : `Saved/MainMenuBackup_20260930`. Scripts de migration `continuous_tracking_berserk.py`, `repair_berserk_colors.py`, `main_menu_difficulty.py`, `repair_main_menu_difficulty.py` deja appliques, **ne pas relancer**. `style_main_menu.py` reste idempotent pour le style. Aucun commit avant la prochaine etape Git demandee.
