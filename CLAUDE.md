@@ -1869,3 +1869,9 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - Anti-chevauchement : apres une vague, le compteur repart a-5s ; une seconde vague ne peut donc pas apparaitre avant la disparition de la premiere. Le premier probe avait atteint6 acteurs AOE superposes et a motive ce correctif.
 - `BP_Boss` et `BP_FlameLineAOE` recompiles/sauvegardes `BS_UP_TO_DATE`, zero chevauchement et zero fil exec arriere. Backup : `Saved/ExtendedMagicBackup_20260930`.
 - Validation finale AOE : `Saved/extended_magic_aoe_final.json`, exactement3 acteurs uniques, maximum3 simultanes, aucun chevauchement de vague, premiere/derniere presence2,0s->7,667s (~5,67s avec le decalage de spawn). Capture lisible apres suppression des VFX repetes : `Saved/VibeUE/Captures/capture-game-20260930-165758.png`.
+
+## 30/09/2026 — routage magie final + animations dédiées
+- `BP_Boss.BeginFireCast` est désormais l’unique routeur : distance `<500` = AOE de proximité, distance `>=500` = sort distant. L’ancien déclencheur autonome sur Tick a été désactivé pour supprimer les doubles casts.
+- CAC : `AS_Revelation` retargetée vers Khaimera (`RTG_AS_Revelation` + `AM_Khaimera_Revelation`), 3 zones de feu sur 6,8 s. Khaimera passe `bCanBeDamaged=false` pendant ce cast puis redevient vulnérable à `FinishFireCast`.
+- Distance : `AS_FireballSpell` retargetée (`RTG_AS_FireballSpell` + `AM_Khaimera_FireballSpell`), jouée à 1,3x pour tenir dans la fenêtre de 3 s ; les deux tirs temporisés existants sont conservés.
+- Validation PIE déterministe : CAC à250u = montage Revelation, exactement3 AOE, zéro projectile, test de50 dégâts ignoré (400→400), vulnérabilité restaurée à la fin. Distance à894u = montage FireballSpell, exactement2 projectiles, zéro AOE. Preuves : `Saved/close_routing_final_probe.json`, `Saved/distance_routing_final_probe.json`. `BP_Boss` compile `BS_UP_TO_DATE`.
