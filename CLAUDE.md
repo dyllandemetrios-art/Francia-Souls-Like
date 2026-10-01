@@ -1890,3 +1890,8 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - Régression constatée dans le premier paquet Windows : le gardien restait immobile alors que la poursuite fonctionnait en PIE. Cause isolée : `RecastNavMesh-Default` était en génération `Static`, donc le build dépendait des données de navigation précalculées de l'éditeur.
 - Le RecastNavMesh de `Lvl_ThirdPerson` est désormais `Dynamic` avec `ForceRebuildOnLoad=true`, sauvegardé dans son External Actor. L'arène reconstruit ainsi sa navigation au lancement du jeu empaqueté.
 - Validation PIE après rechargement : joueur placé à 500u, gardien réveillé, contrôleur `BP_AI_Enemy_C` créé, déplacement de `(1200,0)` à `(632,-18)`, chemin valide jusqu'au joueur.
+
+## 01/10/2026 — correctif softlock Khaimera phase 2
+- Cause : `BeginFireCast` acceptait une nouvelle demande pendant `bIsCasting=true`. Chaque nouvel appel recréait le timer `FinishFireCast` portant le même nom et repoussait sa fin ; Khaimera pouvait rester dans son cast et invulnérable indéfiniment.
+- `BeginFireCast` possède maintenant une garde en entrée : seul `!bIsCasting` accède au routeur CAC/distance. Les demandes concurrentes sont ignorées jusqu'à `FinishFireCast`.
+- Validation PIE : deux appels immédiats au cast CAC, un seul cast engagé ; après 8s `bIsCasting=false`, `bCanBeDamaged=true`, verrou de mouvement libéré et dégâts 400→375. Parcours forcé P2 (225PV) → P3 (100PV) : transition terminée avec `Phase=3`, vulnérabilité restaurée et aucun cast actif. Rapport `Saved/phase2_cast_guard.json`.
