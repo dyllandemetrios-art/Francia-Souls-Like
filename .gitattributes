@@ -1,0 +1,4 @@
+# Outils de migration et de test generes pendant le developpement.
+# Ils restent consultables, mais ne representent pas le langage du gameplay.
+Scripts/*.py linguist-vendored
+

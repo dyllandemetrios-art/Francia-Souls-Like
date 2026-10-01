@@ -43,6 +43,31 @@ Le prototype sert aussi d'expérimentation de production avec des agents IA. Une
 
 Cette méthode a surtout accéléré les itérations et les tâches répétitives. Elle a aussi confirmé qu'un Blueprint qui compile n'est pas nécessairement correct : les systèmes ont donc été contrôlés en jeu, avec des parcours complets et des mesures d'état. Le journal technique détaillé se trouve dans [CLAUDE.md](CLAUDE.md).
 
+## Ce que ce prototype m'a appris
+
+- découper le gameplay en Blueprints spécialisés et en Actor Components réutilisables ;
+- construire un combo avec buffer d'input, endurance, traces de dégâts et Anim Notifies ;
+- coordonner attaque, esquive, invulnérabilité, hit-react, étourdissement et mort ;
+- créer un Target Lock et maintenir l'orientation des attaques vers la cible ;
+- piloter poursuite, attaque et repositionnement avec un Blackboard et un Behavior Tree ;
+- faire évoluer un même boss sur trois phases selon sa vie, sans dupliquer son IA ;
+- connecter les données de combat au HUD, aux difficultés et aux écrans de fin ;
+- valider une boucle complète en PIE et corriger les erreurs d'état invisibles à la compilation.
+
+## Décortiquer les Blueprints
+
+Le meilleur ordre de lecture est le suivant :
+
+1. `BP_DarkKnight_Alert` pour les inputs, la caméra, le verrouillage et la création du HUD ;
+2. `BPC_Combat` pour le combo, le buffer, l'esquive et les traces de mêlée ;
+3. `BPC_Stat` pour la vie, l'endurance, les réactions, les verrous de mouvement et la mort ;
+4. `BP_Enemy` pour le réveil du gardien et l'apparition du boss ;
+5. `BP_AI_Enemy`, `BT_Enemy` et ses Tasks pour la décision IA ;
+6. `BP_Boss` pour les seuils de phase, les attaques physiques et la magie ;
+7. `WBP_HUD`, `WBP_MainMenu` et `WBP_EndMenu` pour l'interface et la boucle rejouable.
+
+Le [guide de lecture Blueprint](Docs/Blueprint_Reading_Guide.md) indique les points d'entrée précis et explique les interactions entre ces systèmes. La [description itch.io](Docs/ItchIO_Description.md) est conservée dans le dépôt pour présenter clairement le projet et les compétences travaillées.
+
 ## Crédits et licences
 
 Le projet utilise Unreal Engine ainsi que des assets Epic Games, Paragon et Marketplace. Chaque asset reste soumis à la licence de son éditeur. Le code, les Blueprints propres au prototype et la documentation de production sont présentés comme travail de portfolio.

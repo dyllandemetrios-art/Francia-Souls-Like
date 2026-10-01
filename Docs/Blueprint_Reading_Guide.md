@@ -49,3 +49,15 @@ Le Spring Arm du BP_ThirdPersonCharacter porte le cadrage epaule reutilise par B
 ## Maintenance
 
 Les scripts de migration ponctuels ne sont pas des scripts de lancement du jeu : ne pas les relancer. Les assets sauvegardes contiennent le gameplay. Les fichiers Saved/BlueprintReadability_20260930 conservent les graphes avant rangement et les comparaisons de connexions. Les tests automatiques ne remplacent pas la validation humaine du ressenti et de la presentation.
+
+## Parcours d'apprentissage conseille
+
+Pour comprendre le projet sans essayer d'absorber tous les graphes en meme temps :
+
+1. Lance la carte et observe une seule action, par exemple une attaque. Suis ensuite `IA_Attack` dans `BP_DarkKnight_Alert`, puis `RequestAttack` dans `BPC_Combat`, jusqu'a `DoAttackTrace` et au degat recu par `BPC_Stat`.
+2. Recommence avec l'esquive. Repere ou l'action est acceptee, quand l'endurance est depensee et comment `bIsDodging` sert aussi de fenetre d'invulnerabilite.
+3. Ouvre `BT_Enemy` et lis-le comme une boucle de decision. Entre ensuite dans chaque Task pour voir la frontiere entre decision, deplacement et attaque.
+4. Dans `BP_Boss`, pars de la reception des degats et suis les seuils 60 % puis 30 %. Compare ensuite `Attack01` en phase 1, 2 et 3.
+5. Termine par `WBP_HUD` : retrouve comment il lit les composants de statistiques et transforme leur etat en barres, annonces de phase, victoire ou defaite.
+
+Exercices utiles : modifier un cout d'endurance, la duree d'invulnerabilite ou un seuil de phase, predire le resultat, puis le verifier en PIE. Fais une seule modification a la fois et remets la valeur d'origine apres le test. C'est le moyen le plus simple de comprendre la circulation des donnees et les dependances entre graphes.

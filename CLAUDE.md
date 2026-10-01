@@ -1900,3 +1900,8 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - Nouveau `/Game/UI/WBP_EndMenu` affiché automatiquement par `WBP_HUD` sur les deux chemins de résultat (`VICTOIRE` ou `VOUS ÊTES MORT`). Il met la partie en pause, montre le curseur et propose **MENU PRINCIPAL** ou **QUITTER**.
 - `MENU PRINCIPAL` recharge `Lvl_ThirdPerson` : test PIE réussi après mort, avec disparition de l'écran de fin, retour de `WBP_MainMenu` et partie de nouveau en pause. Rapport `Saved/end_menu_probe.json`. `QUITTER` est câblé à `QuitGame` et compile ; il n'a pas été exécuté en PIE pour ne pas fermer l'éditeur pendant la validation.
 - README recentré sur la démo : lien itch.io visible, suppression des instructions d'ouverture du projet et de la roadmap hypothétique.
+
+## 02/10/2026 — paquet itch.io sous 1 Go et documentation d'apprentissage
+- Build Shipping limité à `Lvl_ThirdPerson`, sans symboles de debug et sans `NNEDenoiser` (Path Tracer inutilisé). Textures des personnages plafonnées pour la diffusion ; gameplay inchangé. Archive finale : 427 335 306 octets, SHA-256 `A0FD3B9582A511107311558D1C8B393EBB9504C545F52CA2B6DD30305944EF96`.
+- `.gitattributes` exclut les scripts Python ponctuels des statistiques de langages GitHub : le gameplay livré reste dans les Blueprints.
+- README enrichi avec les apprentissages Blueprint et l'ordre de lecture ; description itch.io ajoutée dans `Docs/ItchIO_Description.md` et exercices guidés dans `Docs/Blueprint_Reading_Guide.md`.
