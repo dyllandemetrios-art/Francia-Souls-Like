@@ -1895,3 +1895,8 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - Cause : `BeginFireCast` acceptait une nouvelle demande pendant `bIsCasting=true`. Chaque nouvel appel recréait le timer `FinishFireCast` portant le même nom et repoussait sa fin ; Khaimera pouvait rester dans son cast et invulnérable indéfiniment.
 - `BeginFireCast` possède maintenant une garde en entrée : seul `!bIsCasting` accède au routeur CAC/distance. Les demandes concurrentes sont ignorées jusqu'à `FinishFireCast`.
 - Validation PIE : deux appels immédiats au cast CAC, un seul cast engagé ; après 8s `bIsCasting=false`, `bCanBeDamaged=true`, verrou de mouvement libéré et dégâts 400→375. Parcours forcé P2 (225PV) → P3 (100PV) : transition terminée avec `Phase=3`, vulnérabilité restaurée et aucun cast actif. Rapport `Saved/phase2_cast_guard.json`.
+
+## 01/10/2026 — écran de fin et README de diffusion
+- Nouveau `/Game/UI/WBP_EndMenu` affiché automatiquement par `WBP_HUD` sur les deux chemins de résultat (`VICTOIRE` ou `VOUS ÊTES MORT`). Il met la partie en pause, montre le curseur et propose **MENU PRINCIPAL** ou **QUITTER**.
+- `MENU PRINCIPAL` recharge `Lvl_ThirdPerson` : test PIE réussi après mort, avec disparition de l'écran de fin, retour de `WBP_MainMenu` et partie de nouveau en pause. Rapport `Saved/end_menu_probe.json`. `QUITTER` est câblé à `QuitGame` et compile ; il n'a pas été exécuté en PIE pour ne pas fermer l'éditeur pendant la validation.
+- README recentré sur la démo : lien itch.io visible, suppression des instructions d'ouverture du projet et de la roadmap hypothétique.
