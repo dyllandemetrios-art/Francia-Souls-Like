@@ -1885,3 +1885,8 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - `WBP_HUD` affiche `VOUS ÊTES MORT — ENTRÉE / START : RETOUR AU MENU` sur les deux chemins de mort. Blueprints compilés `UpToDate`.
 - Test PIE : dégâts réels 999 → 0 PV, texte Game Over visible, injection de l'action → carte rechargée, joueur recréé, jeu en pause et `WBP_MainMenu` présent.
 - README réécrit pour présenter Francia Souls-Like comme un premier prototype de combat portfolio et documenter sa boucle, ses commandes, son développement assisté par IA et la portée de la V1.
+
+## 01/10/2026 — correctif navigation du build Shipping
+- Régression constatée dans le premier paquet Windows : le gardien restait immobile alors que la poursuite fonctionnait en PIE. Cause isolée : `RecastNavMesh-Default` était en génération `Static`, donc le build dépendait des données de navigation précalculées de l'éditeur.
+- Le RecastNavMesh de `Lvl_ThirdPerson` est désormais `Dynamic` avec `ForceRebuildOnLoad=true`, sauvegardé dans son External Actor. L'arène reconstruit ainsi sa navigation au lancement du jeu empaqueté.
+- Validation PIE après rechargement : joueur placé à 500u, gardien réveillé, contrôleur `BP_AI_Enemy_C` créé, déplacement de `(1200,0)` à `(632,-18)`, chemin valide jusqu'au joueur.
