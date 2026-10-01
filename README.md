@@ -1,50 +1,58 @@
-# Francia Souls-Like
+# Francia Souls-Like — prototype de combat
 
-Projet personnel d'apprentissage : construire un jeu d'action à la troisième personne façon *souls-like* dans **Unreal Engine 5.8**, en partant d'un tutoriel complet et en testant, en parallèle, une partie du développement pilotée par un assistant IA (**Claude Code**).
+Premier prototype jouable centré sur le **game feel d'un combat de boss à la troisième personne**. Le projet ne cherche pas encore à former un jeu complet : il teste une boucle courte, lisible et rejouable, du menu jusqu'à la victoire ou la mort.
 
-## 🎯 Objectif du projet
+## Boucle jouable
 
-Ce dépôt n'est pas un jeu commercial : c'est un **terrain d'apprentissage**. Deux axes en parallèle :
+1. Choisir une difficulté dans le menu **The Last Knight**.
+2. Approcher et vaincre le gardien Morigesh.
+3. Affronter Khaimera sur trois phases.
+4. Gagner, ou revenir au menu après un Game Over pour recommencer.
 
-1. **Apprendre Unreal Engine et le game design d'un souls-like** en suivant le tutoriel :
-   [**Souls-Like Combat System in Unreal Engine 5**](https://www.youtube.com/watch?v=Hs2sM7eFf6Q) — une série complète qui couvre la mise en place d'un personnage jouable, d'un système de combat (combo, esquive, endurance), d'ennemis avec IA, et de la boucle de jeu de base d'un action-RPG à la troisième personne.
-2. **Expérimenter le développement assisté par IA** : une bonne partie de la logique Blueprint (combat, IA ennemie, caméra, UI, animation) a été construite, débuggée et itérée en pilotant l'éditeur Unreal directement depuis Claude Code, via un plugin qui expose l'éditeur en MCP (Model Context Protocol). L'idée était de voir jusqu'où on peut aller en délégant l'implémentation à un agent IA tout en gardant la main sur les décisions de design.
+Khaimera passe d'un combat physique à une phase magique, puis à un mode berserk rouge. Sa phase magique alterne une révélation de feu autour de lui quand le joueur reste au corps-à-corps et des projectiles lorsqu'il garde ses distances.
 
-## 🕹️ Ce qui est en place
+## Systèmes réalisés
 
-- Personnage jouable à la troisième personne (locomotion 8 directions, strafe, caméra à l'épaule)
-- Système de combat : combo d'attaque à l'épée, esquive directionnelle, gestion d'endurance
-- Vie / dégâts / mort / réaction aux coups (hit-react), côté joueur et ennemis
-- IA ennemie : perception, poursuite, contournement (strafe), attaque, réveil scripté d'un ennemi "endormi", apparition d'un boss après la mort d'un ennemi
-- HUD (vie / endurance) en temps réel
-- Plusieurs environnements de test (salle du template ThirdPerson, niveau "Necropolis")
+- locomotion en strafe et caméra à l'épaule ;
+- verrouillage de cible et assistance d'orientation pendant les combos ;
+- combo à trois coups, endurance, esquive directionnelle et invulnérabilité brève ;
+- dégâts, réaction aux impacts, étourdissement du finisher et mort ;
+- IA de poursuite et d'attaque pour le gardien et le boss ;
+- boss en trois phases avec changements de rythme, d'animations et de VFX ;
+- HUD joueur et boss, annonces de phase, victoire et Game Over ;
+- trois réglages de difficulté ;
+- prise en charge clavier/souris et manette.
 
-Le détail complet des décisions techniques, des bugs rencontrés et de leurs correctifs est journalisé dans [`CLAUDE.md`](CLAUDE.md) — c'est littéralement le carnet de bord de la collaboration avec l'IA, tenu à jour à chaque session.
+## Commandes
 
-## 🤖 Le pari "développer avec Claude Code"
+| Action | Clavier / souris | Manette |
+|---|---|---|
+| Déplacement | ZQSD ou flèches | Stick gauche |
+| Caméra | Souris | Stick droit |
+| Attaque | Clic gauche | X / Carré |
+| Esquive | Espace | A / Croix |
+| Verrouillage | Clic molette | Stick droit pressé |
+| Interaction | E ou clic droit | Y / Triangle |
+| Retour au menu après la mort | Entrée | Start |
 
-Plutôt que d'écrire chaque Blueprint à la main, une grande partie de ce projet a été réalisée en donnant des instructions en langage naturel à Claude Code, qui pilote l'éditeur Unreal via un serveur MCP local (scripts Python exécutés dans l'éditeur : création de nœuds, câblage de graphes, réglage d'assets, tests en Play-In-Editor, lecture de logs...).
+## Développement assisté par IA
 
-Ce que j'en retiens à ce stade :
+Le prototype sert aussi d'expérimentation de production avec des agents IA. Une partie des Blueprints, de l'intégration des animations et des tests Play-In-Editor a été pilotée dans Unreal via MCP, d'abord avec Claude Code puis avec ChatGPT/Codex. Les décisions de game design, les retours de jeu et la validation finale restent humains.
 
-- **Ça va vite sur la mécanique répétitive** : câbler un combo, un système de dégâts, une IA de poursuite — des tâches qu'un débutant met du temps à comprendre se posent en quelques minutes, ce qui laisse plus de temps pour itérer sur le *feel* du jeu.
-- **Les bugs Unreal restent des bugs Unreal** : pins non connectés qui échouent silencieusement, overrides d'instance qui sautent après une édition de CDO, Blend Space cassés créés par script... l'IA se plante sur les mêmes pièges qu'un humain, juste plus vite, et il faut vérifier ses affirmations en testant réellement en jeu plutôt que de la croire sur parole.
-- **Le vrai levier, c'est la vérification** : les sessions les plus utiles sont celles où chaque changement est retesté en Play-In-Editor avec des mesures concrètes (position, vitesse, état des variables), pas juste "ça compile donc ça marche".
+Cette méthode a surtout accéléré les itérations et les tâches répétitives. Elle a aussi confirmé qu'un Blueprint qui compile n'est pas nécessairement correct : les systèmes ont donc été contrôlés en jeu, avec des parcours complets et des mesures d'état. Le journal technique détaillé se trouve dans [CLAUDE.md](CLAUDE.md).
 
-## 🛠️ Stack technique
+## Lancer le projet
 
-- **Unreal Engine 5.8**, Enhanced Input System
-- Personnage et animations : pack *Dark Knight*, squelette dédié
-- Ennemis : personnages Paragon (Morigesh, Khaimera) retargetés, puis expérimentation avec d'autres packs de personnages (squelette stylisé, créature "alien")
-- Environnement : template ThirdPerson par défaut, puis pack *Necropolis*
-- Développement piloté en partie par [Claude Code](https://claude.com/claude-code) via un plugin MCP (VibeUE) exposant l'éditeur Unreal en Python scriptable
+- Version utilisée : **Unreal Engine 5.8**.
+- Ouvrir `Francia_Souls_Like.uproject`.
+- Lancer la carte `/Game/ThirdPerson/Lvl_ThirdPerson`.
 
-## 📚 Ressources
+Les packs Marketplace et Paragon sont exclus du dépôt Git à cause de leur taille et doivent être présents localement pour ouvrir le projet complet. Une version Windows autonome est prévue pour la page itch.io.
 
-- Tutoriel suivi : [Souls-Like Combat System in Unreal Engine 5](https://www.youtube.com/watch?v=Hs2sM7eFf6Q)
-- Journal de développement détaillé : [`CLAUDE.md`](CLAUDE.md)
-- Notes d'architecture : [`Docs/CombatFlow_Architecture.md`](Docs/CombatFlow_Architecture.md), [`Docs/Boss_StateMachine.md`](Docs/Boss_StateMachine.md)
+## État de la V1
 
----
+La V1 s'arrête volontairement à ce prototype de combat. Une éventuelle suite pourra explorer une parade inspirée de l'AMHE, des animations capturées avec le club et une arène dédiée. Ces pistes seront traitées comme de nouvelles itérations pour préserver cette version jouable.
 
-*Projet éducatif — les assets tiers (Paragon, packs de personnages/environnements marketplace) sont utilisés à des fins d'apprentissage et ne sont pas inclus/distribués à des fins commerciales.*
+## Crédits et licences
+
+Le projet utilise Unreal Engine ainsi que des assets Epic Games, Paragon et Marketplace. Chaque asset reste soumis à la licence de son éditeur. Le code, les Blueprints propres au prototype et la documentation de production sont présentés comme travail de portfolio.

@@ -1879,3 +1879,9 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 ## 30/09/2026 — AOE Revelation recentrée sur Khaimera
 - Correction sans toucher au reste du pattern : les 3 zones de `CastFlameLine` ne calculent plus leur direction depuis la position du joueur. Elles apparaissent désormais autour du boss, sur son axe local droite/gauche : -260u, centre, +260u.
 - Validation PIE avec joueur placé volontairement en diagonale à255u : zones mesurées à `(boss Y-260)`, centre exact du boss et `(boss Y+260)` ; distances au boss 260/0/260, donc placement indépendant de la position du joueur. Preuve : `Saved/boss_centered_aoe_probe.json`. `BP_Boss` compile `BS_UP_TO_DATE`.
+
+## 01/10/2026 — fermeture V1 : rejouer après Game Over
+- `BP_DarkKnight_Alert` : `IA_Interact` teste maintenant `StatComponent.bIsDead`. Après la mort, Entrée ou Start recharge `Lvl_ThirdPerson`, ce qui réaffiche le menu de difficulté ; sinon l'interaction existante continue normalement. Entrée/Start ont été ajoutés à `IMC_Default`.
+- `WBP_HUD` affiche `VOUS ÊTES MORT — ENTRÉE / START : RETOUR AU MENU` sur les deux chemins de mort. Blueprints compilés `UpToDate`.
+- Test PIE : dégâts réels 999 → 0 PV, texte Game Over visible, injection de l'action → carte rechargée, joueur recréé, jeu en pause et `WBP_MainMenu` présent.
+- README réécrit pour présenter Francia Souls-Like comme un premier prototype de combat portfolio et documenter sa boucle, ses commandes, son développement assisté par IA et la portée de la V1.
