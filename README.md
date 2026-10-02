@@ -13,6 +13,10 @@ Premier prototype jouable centré sur le **game feel d'un combat de boss à la t
 
 Khaimera passe d'un combat physique à une phase magique, puis à un mode berserk rouge. Sa phase magique alterne une révélation de feu autour de lui quand le joueur reste au corps-à-corps et des projectiles lorsqu'il garde ses distances.
 
+## Base d'apprentissage
+
+Je me suis servi de ce tutoriel pour apprendre les systèmes basiques : https://www.youtube.com/watch?v=Hs2sM7eFf6Q&list=WL&index=15&t=14331s tout en prenant des libertés
+
 ## Systèmes réalisés
 
 - locomotion en strafe et caméra à l'épaule ;
