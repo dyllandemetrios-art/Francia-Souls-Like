@@ -1910,3 +1910,9 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - `WBP_MainMenu` possède désormais un quatrième bouton **QUITTER LE JEU**, câblé à `QuitGame` avec le PlayerController local, sur le même modèle que `WBP_EndMenu`.
 - `WBP_HUD` pose immédiatement `bEndMenuShown`, puis attend 3,0 s avant de créer et mettre en pause `WBP_EndMenu`, sur les chemins victoire et mort joueur. Ce délai laisse jouer le montage de mort et conserve une courte respiration avant l'interface.
 - Les connexions des deux chemins ont été relues après sauvegarde ; `WBP_MainMenu` et `WBP_HUD` compilent. Build Shipping réussi, archive itch.io 427 335 768 octets, SHA-256 `0F6A4EA4D4D6CB5AB750C62C7936A1F9CBA85A2CFE5F95C841A0B20FF6209B4F`.
+
+## 02/10/2026 — correction locomotion glissée de Morigesh
+- `ABP_Morigesh` : lecteur de `BS_Morigesh_Locomotion` recréé puis reconnecté à `Direction`, `Speed` et au slot de montage, afin d'éliminer son état interne figé. Le graphe runtime remonte bien `Speed=500` lorsque le gardien avance.
+- `BP_Enemy.Mesh` utilise maintenant `Always Tick Pose and Refresh Bones`; la valeur est confirmée sur l'instance de Morigesh placée dans `Lvl_ThirdPerson`. Cela empêche son squelette de rester sur une pose précédente pendant la poursuite après l'animation de réveil.
+- `BP_Enemy` et `ABP_Morigesh` recompilés `BS_UP_TO_DATE`, zéro erreur/avertissement. L'éveil, la création du contrôleur, la poursuite à 500 u/s et l'attaque ont été observés dans le probe PIE.
+- Build Shipping recuit avec le correctif. Archive itch.io : 427 335 777 octets (407,54 Mio), SHA-256 `D6E6431A2931EB93AAE628873588342EFF244067591EDDDA659A1442C5CB91BE`.
