@@ -1905,3 +1905,8 @@ ennemis retirés du niveau, équilibrage 400 PV / 20 dégâts.
 - Build Shipping limité à `Lvl_ThirdPerson`, sans symboles de debug et sans `NNEDenoiser` (Path Tracer inutilisé). Textures des personnages plafonnées pour la diffusion ; gameplay inchangé. Archive finale : 427 335 306 octets, SHA-256 `A0FD3B9582A511107311558D1C8B393EBB9504C545F52CA2B6DD30305944EF96`.
 - `.gitattributes` exclut les scripts Python ponctuels des statistiques de langages GitHub : le gameplay livré reste dans les Blueprints.
 - README enrichi avec les apprentissages Blueprint et l'ordre de lecture ; description itch.io ajoutée dans `Docs/ItchIO_Description.md` et exercices guidés dans `Docs/Blueprint_Reading_Guide.md`.
+
+## 02/10/2026 — temporisation de fin et quitter depuis le menu principal
+- `WBP_MainMenu` possède désormais un quatrième bouton **QUITTER LE JEU**, câblé à `QuitGame` avec le PlayerController local, sur le même modèle que `WBP_EndMenu`.
+- `WBP_HUD` pose immédiatement `bEndMenuShown`, puis attend 3,0 s avant de créer et mettre en pause `WBP_EndMenu`, sur les chemins victoire et mort joueur. Ce délai laisse jouer le montage de mort et conserve une courte respiration avant l'interface.
+- Les connexions des deux chemins ont été relues après sauvegarde ; `WBP_MainMenu` et `WBP_HUD` compilent. Build Shipping réussi, archive itch.io 427 335 768 octets, SHA-256 `0F6A4EA4D4D6CB5AB750C62C7936A1F9CBA85A2CFE5F95C841A0B20FF6209B4F`.
